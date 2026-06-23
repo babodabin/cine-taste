@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>씨네테이스트</title>
+<meta name="theme-color" content="#0a0a0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="씨네테이스트">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0a0f; --bg2:#13131c; --card:#16161f; --line:#27273a;
+    --txt:#f0eef5; --dim:#9a98ad; --gold:#e8b84b; --red:#e0484d; --teal:#3ad0c8;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;background:var(--bg);color:var(--txt);font-family:'Noto Sans KR',sans-serif;}
+  body{display:flex;flex-direction:column;height:100%;}
+  body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:var(--bg);z-index:2000;pointer-events:none;}
+
+  header{padding:calc(14px + env(safe-area-inset-top)) 18px 12px;background:linear-gradient(180deg,#13131c,#0a0a0f);border-bottom:1px solid var(--line);}
+  .brand{display:flex;align-items:baseline;gap:9px;}
+  .brand h1{font-family:'Anton',sans-serif;font-size:27px;letter-spacing:1px;color:var(--txt);font-weight:400;}
+  .brand h1 .ac{color:var(--gold);}
+  .brand .sub{font-size:11px;color:var(--dim);letter-spacing:2px;text-transform:uppercase;}
+
+  #tabs{display:flex;gap:7px;margin-top:13px;}
+  .tab{flex:1;text-align:center;font-size:13px;font-weight:700;color:var(--dim);padding:9px 0;
+    border-radius:10px;border:1px solid var(--line);background:#101019;cursor:pointer;transition:.15s;}
+  .tab.active{background:var(--gold);color:#1a1505;border-color:var(--gold);}
+
+  main{flex:1;overflow-y:auto;padding:16px 18px 40px;-webkit-overflow-scrolling:touch;}
+  .view{display:none;}
+  .view.show{display:block;}
+
+  /* 검색 */
+  #searchWrap{position:relative;margin-bottom:16px;}
+  #q{width:100%;padding:13px 40px 13px 14px;font-size:15px;font-family:inherit;color:var(--txt);
+    background:var(--card);border:1px solid var(--line);border-radius:12px;outline:none;}
+  #q:focus{border-color:var(--gold);}
+  #qClear{position:absolute;right:10px;top:50%;transform:translateY(-50%);width:24px;height:24px;border:none;
+    background:#2a2a3a;color:var(--dim);border-radius:50%;font-size:15px;cursor:pointer;display:none;}
+
+  .hint{color:var(--dim);font-size:13px;line-height:1.7;text-align:center;margin-top:40px;padding:0 20px;}
+  .hint b{color:var(--gold);}
+
+  /* 영화 행 */
+  .mRow{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:10px;margin-bottom:11px;align-items:center;}
+  .mPoster{width:62px;height:93px;border-radius:8px;object-fit:cover;background:#222;flex-shrink:0;}
+  .mPosterEmpty{width:62px;height:93px;border-radius:8px;background:#1e1e2a;flex-shrink:0;display:flex;
+    align-items:center;justify-content:center;font-size:22px;color:#444;}
+  .mInfo{flex:1;min-width:0;}
+  .mTitle{font-size:15px;font-weight:700;line-height:1.3;}
+  .mMeta{font-size:12px;color:var(--dim);margin-top:3px;}
+  .mGenre{font-size:11px;color:#7a7a90;margin-top:5px;line-height:1.4;}
+  .mOverview{font-size:11.5px;color:#85839a;margin-top:6px;line-height:1.45;display:-webkit-box;
+    -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+
+  .tmdbScore{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--gold);font-weight:700;}
+
+  /* 별점 */
+  .stars{display:flex;gap:2px;margin-top:8px;}
+  .star{font-size:21px;color:#3a3a4a;cursor:pointer;line-height:1;transition:.1s;}
+  .star.on{color:var(--gold);}
+  .star:active{transform:scale(1.2);}
+
+  .btn{font-family:inherit;font-weight:700;font-size:12.5px;border:none;border-radius:9px;padding:8px 13px;cursor:pointer;}
+  .btnAdd{background:var(--teal);color:#04201e;}
+  .btnDel{background:#2a2a3a;color:var(--red);}
+  .mActions{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap;}
+
+  .myScore{font-size:12px;font-weight:700;color:var(--gold);background:#241d08;
+    padding:3px 9px;border-radius:20px;display:inline-block;margin-top:7px;}
+
+  .secTitle{font-size:13px;font-weight:900;color:var(--dim);letter-spacing:1px;text-transform:uppercase;
+    margin:24px 0 13px;display:flex;align-items:center;gap:9px;}
+  .secTitle::after{content:"";flex:1;height:1px;background:var(--line);}
+  .secTitle:first-child{margin-top:0;}
+
+  .countTag{font-size:11px;color:var(--dim);background:#1c1c28;padding:2px 8px;border-radius:20px;}
+
+  /* 추천 분석 박스 */
+  .tasteBox{background:linear-gradient(135deg,#1a1505,#16161f);border:1px solid #3a2f10;
+    border-radius:14px;padding:14px;margin-bottom:18px;}
+  .tasteBox h3{font-size:13px;color:var(--gold);margin-bottom:9px;}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{font-size:11px;color:#e8d9a8;background:#2a2208;border:1px solid #4a3c12;padding:3px 9px;border-radius:20px;}
+  .recWhy{font-size:10.5px;color:var(--teal);margin-top:6px;}
+
+  .loading{text-align:center;color:var(--dim);font-size:13px;padding:30px;}
+  .spin{display:inline-block;width:18px;height:18px;border:2px solid #2a2a3a;border-top-color:var(--gold);
+    border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle;margin-right:8px;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+
+  .empty{text-align:center;color:var(--dim);font-size:13px;padding:40px 20px;line-height:1.7;}
+  .err{background:#2a1416;border:1px solid #5a2228;color:#f0a0a4;font-size:12px;padding:11px 13px;border-radius:10px;margin:12px 0;line-height:1.5;}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><h1>씨네<span class="ac">테이스트</span></h1><span class="sub">Cine Taste</span></div>
+  <div id="tabs">
+    <div class="tab active" data-v="search">검색·평가</div>
+    <div class="tab" data-v="mine">내 평점</div>
+    <div class="tab" data-v="recs">추천</div>
+  </div>
+</header>
+
+<main>
+  <!-- 검색 -->
+  <div class="view show" id="v-search">
+    <div id="searchWrap">
+      <input id="q" type="text" placeholder="영화 제목 검색 (예: 기생충, 다크나이트)" autocomplete="off">
+      <button id="qClear">×</button>
+    </div>
+    <div id="searchResults"></div>
+    <div class="hint" id="searchHint">본 영화를 검색해서 <b>별점</b>을 매겨보세요.<br>평점이 쌓이면 취향을 분석해<br><b>비슷한 영화</b>를 추천해 드려요.</div>
+  </div>
+
+  <!-- 내 평점 -->
+  <div class="view" id="v-mine">
+    <div id="mineList"></div>
+  </div>
+
+  <!-- 추천 -->
+  <div class="view" id="v-recs">
+    <div id="recsBox"></div>
+  </div>
+</main>
+
+<script>
+const API_KEY="864e86895b703ac1bf9cc387096d6e80";
+const IMG="https://image.tmdb.org/t/p/w185";
+const BASE="https://api.themoviedb.org/3";
+const $=s=>document.querySelector(s);
+
+// ---- 저장 (이 기기에만) ----
+const STORE="cinetaste_ratings_v1";
+let RATED={}; // id -> {id,title,year,poster,genres:[ids],rating,overview,vote}
+function load(){ try{RATED=JSON.parse(localStorage.getItem(STORE))||{};}catch(e){RATED={};} }
+function save(){ try{localStorage.setItem(STORE,JSON.stringify(RATED));}catch(e){} }
+load();
+
+// ---- 장르 맵 ----
+let GENRES={};
+async function loadGenres(){
+  try{
+    const r=await fetch(`${BASE}/genre/movie/list?api_key=${API_KEY}&language=ko-KR`);
+    const d=await r.json();
+    (d.genres||[]).forEach(g=>GENRES[g.id]=g.name);
+  }catch(e){}
+}
+const gname=id=>GENRES[id]||"";
+
+// ---- API ----
+async function searchMovies(q){
+  const r=await fetch(`${BASE}/search/movie?api_key=${API_KEY}&language=ko-KR&query=${encodeURIComponent(q)}&include_adult=false`);
+  if(!r.ok) throw new Error("검색 실패 ("+r.status+")");
+  const d=await r.json();
+  return (d.results||[]).filter(m=>m.poster_path||m.overview);
+}
+async function similarOf(id){
+  try{
+    const r=await fetch(`${BASE}/movie/${id}/recommendations?api_key=${API_KEY}&language=ko-KR`);
+    const d=await r.json();
+    return d.results||[];
+  }catch(e){ return []; }
+}
+
+// ---- 렌더 헬퍼 ----
+function posterTag(m){
+  return m.poster_path
+    ? `<img class="mPoster" src="${IMG}${m.poster_path}" alt="">`
+    : `<div class="mPosterEmpty">🎬</div>`;
+}
+function yearOf(m){ return (m.release_date||"").slice(0,4); }
+
+function movieRowHtml(m,opts={}){
+  const gids=m.genre_ids||m.genres||[];
+  const gtext=gids.slice(0,3).map(gname).filter(Boolean).join(' · ');
+  const rated=RATED[m.id];
+  const stars=[1,2,3,4,5].map(n=>`<span class="star ${rated&&rated.rating>=n?'on':''}" data-id="${m.id}" data-n="${n}">★</span>`).join('');
+  return `<div class="mRow">
+    ${posterTag(m)}
+    <div class="mInfo">
+      <div class="mTitle">${esc(m.title)}</div>
+      <div class="mMeta">${yearOf(m)||'—'} ${m.vote_average?`· <span class="tmdbScore">★ ${m.vote_average.toFixed(1)}</span>`:''}</div>
+      ${gtext?`<div class="mGenre">${gtext}</div>`:''}
+      ${opts.overview&&m.overview?`<div class="mOverview">${esc(m.overview)}</div>`:''}
+      ${opts.why?`<div class="recWhy">${esc(opts.why)}</div>`:''}
+      <div class="stars">${stars}</div>
+      ${rated?`<span class="myScore">내 평점 ★${rated.rating}</span>`:''}
+    </div>
+  </div>`;
+}
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+// ---- 별점 클릭 (이벤트 위임) ----
+document.addEventListener('click',e=>{
+  const st=e.target.closest('.star');
+  if(st){
+    const id=+st.dataset.id, n=+st.dataset.n;
+    rate(id,n);
+  }
+});
+let LASTRESULTS={}; // id -> movie (검색결과 캐시, 평점 저장용)
+function rate(id,n){
+  const m=LASTRESULTS[id]||RATED[id];
+  if(!m) return;
+  RATED[id]={
+    id, title:m.title, year:yearOf(m)||m.year||'',
+    poster:m.poster_path||m.poster||null,
+    genres:(m.genre_ids||m.genres||[]),
+    rating:n, overview:m.overview||'', vote:m.vote_average||m.vote||0
+  };
+  save();
+  refreshCurrentView();
+}
+function unrate(id){ delete RATED[id]; save(); refreshCurrentView(); }
+
+// ---- 검색 ----
+let qTimer=null;
+$('#q').addEventListener('input',e=>{
+  const v=e.target.value.trim();
+  $('#qClear').style.display=v?'block':'none';
+  clearTimeout(qTimer);
+  if(!v){ $('#searchResults').innerHTML=''; $('#searchHint').style.display='block'; return; }
+  qTimer=setTimeout(()=>doSearch(v),400);
+});
+$('#qClear').addEventListener('click',()=>{
+  $('#q').value=''; $('#qClear').style.display='none';
+  $('#searchResults').innerHTML=''; $('#searchHint').style.display='block'; $('#q').focus();
+});
+async function doSearch(q){
+  $('#searchHint').style.display='none';
+  $('#searchResults').innerHTML='<div class="loading"><span class="spin"></span>검색 중…</div>';
+  try{
+    const res=await searchMovies(q);
+    LASTRESULTS={}; res.forEach(m=>LASTRESULTS[m.id]=m);
+    if(!res.length){ $('#searchResults').innerHTML='<div class="empty">검색 결과가 없어요.<br>다른 제목으로 찾아보세요.</div>'; return; }
+    $('#searchResults').innerHTML=res.map(m=>movieRowHtml(m,{overview:true})).join('');
+  }catch(err){
+    $('#searchResults').innerHTML=`<div class="err">${esc(err.message)}<br>인터넷 연결을 확인해 주세요.</div>`;
+  }
+}
+
+// ---- 내 평점 ----
+function renderMine(){
+  const arr=Object.values(RATED).sort((a,b)=>b.rating-a.rating||a.title.localeCompare(b.title));
+  if(!arr.length){ $('#mineList').innerHTML='<div class="empty">아직 평가한 영화가 없어요.<br>검색 탭에서 별점을 매겨보세요.</div>'; return; }
+  // 평점 저장용 캐시에도 넣기
+  arr.forEach(m=>LASTRESULTS[m.id]={id:m.id,title:m.title,release_date:m.year+'-01-01',poster_path:m.poster,genre_ids:m.genres,overview:m.overview,vote_average:m.vote});
+  const head=`<div class="secTitle">내가 평가한 영화 <span class="countTag">${arr.length}편</span></div>`;
+  $('#mineList').innerHTML=head+arr.map(m=>{
+    const mm={id:m.id,title:m.title,release_date:(m.year||'')+'-01-01',poster_path:m.poster,genre_ids:m.genres,vote_average:m.vote,overview:m.overview};
+    return movieRowHtml(mm,{}).replace('</div>\n  </div>',
+      `</div><div class="mActions"><button class="btn btnDel" onclick="unrate(${m.id})">삭제</button></div></div>`);
+  }).join('');
+}
+
+// ---- 추천 (내 평점 + 장르/키워드 가중치) ----
+async function renderRecs(){
+  const rated=Object.values(RATED);
+  if(rated.length<1){
+    $('#recsBox').innerHTML='<div class="empty">평가한 영화가 있어야 추천할 수 있어요.<br>먼저 본 영화에 별점을 매겨주세요.</div>';
+    return;
+  }
+  $('#recsBox').innerHTML='<div class="loading"><span class="spin"></span>취향 분석 중…</div>';
+
+  // 1) 장르 가중치 = 내가 준 평점 합산 (높은 평점일수록 ↑)
+  const genreW={};
+  rated.forEach(m=>{
+    const w=m.rating-2.5; // 1~5 → -1.5~+2.5 (낮은 점수는 감점)
+    (m.genres||[]).forEach(g=>{ genreW[g]=(genreW[g]||0)+w; });
+  });
+
+  // 2) 후보 수집 = 높게 준 영화들의 추천작
+  const liked=rated.filter(m=>m.rating>=4).sort((a,b)=>b.rating-a.rating);
+  const seeds=(liked.length?liked:rated.sort((a,b)=>b.rating-a.rating)).slice(0,8);
+  const seen=new Set(rated.map(m=>m.id));
+  const cand={};
+  for(const s of seeds){
+    const sims=await similarOf(s.id);
+    sims.forEach(m=>{
+      if(seen.has(m.id)) return;
+      if(!cand[m.id]) cand[m.id]={m,score:0,from:new Set()};
+      // 후보 점수 = 시드영화 추천 등장 + 장르 가중치
+      let gs=0; (m.genre_ids||[]).forEach(g=>{ gs+=(genreW[g]||0); });
+      cand[m.id].score += 1 + gs*0.3 + (m.vote_average||0)*0.05;
+      cand[m.id].from.add(s.title);
+    });
+  }
+
+  const ranked=Object.values(cand).sort((a,b)=>b.score-a.score).slice(0,30);
+  ranked.forEach(c=>LASTRESULTS[c.m.id]=c.m);
+
+  // 취향 요약 칩 (상위 장르)
+  const topG=Object.entries(genreW).filter(([,w])=>w>0).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([g])=>gname(+g)).filter(Boolean);
+  let html=`<div class="tasteBox"><h3>🎯 내 취향 분석</h3>
+    <div class="chips">${topG.length?topG.map(g=>`<span class="chip">${g}</span>`).join(''):'<span class="chip">평점을 더 쌓아주세요</span>'}</div>
+    <div class="recWhy">평가한 ${rated.length}편을 분석했어요. 높게 준 영화와 비슷하고, 좋아하는 장르일수록 위로 올려요.</div></div>`;
+
+  if(!ranked.length){
+    html+='<div class="empty">추천 후보를 못 찾았어요.<br>별점 4점 이상 영화를 몇 개 더 평가해 주세요.</div>';
+    $('#recsBox').innerHTML=html; return;
+  }
+  html+=`<div class="secTitle">추천 영화 <span class="countTag">${ranked.length}편</span></div>`;
+  html+=ranked.map(c=>{
+    const why='비슷한 영화: '+[...c.from].slice(0,2).join(', ');
+    return movieRowHtml(c.m,{overview:true,why});
+  }).join('');
+  $('#recsBox').innerHTML=html;
+}
+
+// ---- 탭 ----
+let curView='search';
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    curView=t.dataset.v;
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('show'));
+    $('#v-'+curView).classList.add('show');
+    refreshCurrentView();
+  });
+});
+function refreshCurrentView(){
+  if(curView==='mine') renderMine();
+  else if(curView==='recs') renderRecs();
+  // 검색 탭: 별점 표시만 갱신 (현재 보이는 행의 별 on/off)
+  if(curView==='search'){
+    document.querySelectorAll('#searchResults .mRow').forEach(row=>{
+      const stars=row.querySelectorAll('.star');
+      if(!stars.length) return;
+      const id=+stars[0].dataset.id;
+      const r=RATED[id];
+      stars.forEach(s=>s.classList.toggle('on', r && r.rating>=+s.dataset.n));
+      let badge=row.querySelector('.myScore');
+      if(r){
+        if(!badge){ badge=document.createElement('span'); badge.className='myScore'; row.querySelector('.mInfo').appendChild(badge); }
+        badge.textContent='내 평점 ★'+r.rating;
+      } else if(badge){ badge.remove(); }
+    });
+  }
+}
+
+// 초기화
+(async function init(){
+  await loadGenres();
+})();
+</script>
+</body>
+</html>
