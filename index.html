@@ -312,21 +312,21 @@ function restoreStars(starsEl,id){
   const r=RATED[id];
   starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on', r && r.rating>=+s.dataset.n));
 }
-let activeStars=null, activeId=null, movedX=0, startX=0, startedOnStar=false;
+let activeStars=null, activeId=null, movedX=0, startX=0, startedOnStar=false, lastPreview=0;
 function onStarDown(e){
   const star=e.target.closest('.star');           // 반드시 별 위에서 시작
   const starsEl=e.target.closest('.stars, .dmStars');
   if(!starsEl || !star) return;                   // 별이 아니면(여백·옆) 무시 → 스크롤 정상
   activeStars=starsEl; activeId=+starsEl.dataset.mid;
   startX=e.clientX; movedX=0; startedOnStar=true;
-  // 다운 시점엔 미리보기 안 함
+  lastPreview=+star.dataset.n;                     // 처음 누른 별 번호 기억
 }
 function onStarMove(e){
   if(!activeStars) return;
   movedX=Math.abs(e.clientX-startX);
   if(movedX>6){
     const n=starFromPoint(activeStars, e.clientX);
-    if(n) previewStars(activeStars,n);
+    if(n){ lastPreview=n; previewStars(activeStars,n); }  // 마지막 미리본 값 기억
     e.preventDefault();   // 드래그 중에만 스크롤 막음
   }
 }
@@ -335,10 +335,11 @@ function onStarUp(e){
   const starsEl=activeStars, id=activeId;
   let n=0;
   if(movedX>6){
-    n=starFromPoint(starsEl, e.clientX);                 // 드래그: 손가락 위치
+    n=starFromPoint(starsEl, e.clientX) || lastPreview;  // 좌표 실패 시 마지막 미리본 값
   } else {
     const st=(e.target&&e.target.closest)?e.target.closest('.star'):null;
     if(st && st.parentElement===starsEl) n=+st.dataset.n; // 탭: 정확히 그 별만
+    else n=lastPreview;                                   // 처음 누른 별 값으로 보정
   }
   activeStars=null; activeId=null; startedOnStar=false;
   if(n && id){ rate(id,n); }
