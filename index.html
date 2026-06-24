@@ -468,16 +468,67 @@ const DISC_CATS=[
   {key:'trending', name:'🔥 지금 뜨는'},
   {key:'now',      name:'🎬 올해 인기작'},
   {key:'top',      name:'⭐ 역대 명작'},
-  {key:'popular',  name:'👥 인기 영화'},
+  {key:'cannes',   name:'🌴 칸 황금종려상'},
+  {key:'oscar',    name:'🏆 아카데미 작품상'},
+  {key:'korea',    name:'🇰🇷 한국영화 명작'},
+  {key:'thriller', name:'🔪 스릴러·범죄 명작'},
 ];
+
+// 칸 황금종려상 수상작 [제목(영문/원제), 영화 개봉연도] — 시상연도 2000~2025
+const CANNES_WINNERS=[
+  ["Dancer in the Dark",2000],["The Son's Room",2001],["The Pianist",2002],
+  ["Elephant",2003],["Fahrenheit 9/11",2004],["L'Enfant",2005],
+  ["The Wind That Shakes the Barley",2006],["4 Months, 3 Weeks and 2 Days",2007],
+  ["The Class",2008],["The White Ribbon",2009],
+  ["Uncle Boonmee Who Can Recall His Past Lives",2010],["The Tree of Life",2011],
+  ["Amour",2012],["Blue Is the Warmest Colour",2013],["Winter Sleep",2014],
+  ["Dheepan",2015],["I, Daniel Blake",2016],["The Square",2017],
+  ["Shoplifters",2018],["Parasite",2019],
+  ["Titane",2021],["Triangle of Sadness",2022],["Anatomy of a Fall",2023],
+  ["Anora",2024],["It Was Just an Accident",2025],
+];
+// 아카데미 작품상 수상작 [제목, 영화 개봉연도] — 시상식 2000~2025회 (영화는 전년도)
+const OSCAR_WINNERS=[
+  ["American Beauty",1999],["Gladiator",2000],["A Beautiful Mind",2001],
+  ["Chicago",2002],["The Lord of the Rings: The Return of the King",2003],
+  ["Million Dollar Baby",2004],["Crash",2004],["The Departed",2006],
+  ["No Country for Old Men",2007],["Slumdog Millionaire",2008],
+  ["The Hurt Locker",2008],["The King's Speech",2010],["The Artist",2011],
+  ["Argo",2012],["12 Years a Slave",2013],["Birdman",2014],
+  ["Spotlight",2015],["Moonlight",2016],["The Shape of Water",2017],
+  ["Green Book",2018],["Parasite",2019],["Nomadland",2020],
+  ["CODA",2021],["Everything Everywhere All at Once",2022],
+  ["Oppenheimer",2023],["Anora",2024],
+];
+
 function discUrl(cat){
   const y=new Date().getFullYear();
   if(cat==='trending') return `${BASE}/trending/movie/week?api_key=${API_KEY}&language=ko-KR`;
   if(cat==='now')      return `${BASE}/discover/movie?api_key=${API_KEY}&language=ko-KR&sort_by=popularity.desc&primary_release_year=${y}&vote_count.gte=50`;
   if(cat==='top')      return `${BASE}/movie/top_rated?api_key=${API_KEY}&language=ko-KR`;
-  if(cat==='popular')  return `${BASE}/movie/popular?api_key=${API_KEY}&language=ko-KR`;
-  return `${BASE}/movie/popular?api_key=${API_KEY}&language=ko-KR`;
+  // 한국영화 명작: 한국어 원어 + 평점순 (충분한 표본)
+  if(cat==='korea')    return `${BASE}/discover/movie?api_key=${API_KEY}&language=ko-KR&with_original_language=ko&sort_by=vote_average.desc&vote_count.gte=200`;
+  // 스릴러·범죄 명작: 스릴러(53)+범죄(80) 장르 + 평점순
+  if(cat==='thriller') return `${BASE}/discover/movie?api_key=${API_KEY}&language=ko-KR&with_genres=53,80&sort_by=vote_average.desc&vote_count.gte=1000`;
+  return `${BASE}/movie/top_rated?api_key=${API_KEY}&language=ko-KR`;
 }
+
+// 수상작 리스트(제목+연도)를 TMDB 검색으로 실제 영화 객체화. 최신 시상연도가 위로.
+async function fetchAwardList(winners){
+  const out=[]; const seen=new Set();
+  // 최신순으로 보여주기 위해 역순 처리
+  for(let i=winners.length-1;i>=0;i--){
+    const [title,year]=winners[i];
+    try{
+      const r=await fetch(`${BASE}/search/movie?api_key=${API_KEY}&language=ko-KR&query=${encodeURIComponent(title)}&year=${year}&include_adult=false`);
+      const d=await r.json();
+      let m=(d.results||[])[0];
+      if(m && !seen.has(m.id)){ seen.add(m.id); out.push(m); }
+    }catch(e){}
+  }
+  return out;
+}
+
 async function renderDiscover(){
   let html=`<div class="tasteBox"><h3>🧭 발견 <span class="tasteHint">TMDB가 고른 영화들</span></h3>
     <div class="chips">${DISC_CATS.map(c=>`<span class="chip ${DISC_CAT===c.key?'on':''}" data-disc="${c.key}">${c.name}</span>`).join('')}</div></div>`;
@@ -485,9 +536,15 @@ async function renderDiscover(){
   let list=DISC_CACHE[DISC_CAT];
   if(!list){
     try{
-      const r=await fetch(discUrl(DISC_CAT));
-      const d=await r.json();
-      list=(d.results||[]).filter(m=>m.poster_path);
+      if(DISC_CAT==='cannes'){
+        list=(await fetchAwardList(CANNES_WINNERS)).filter(m=>m.poster_path||m.overview);
+      } else if(DISC_CAT==='oscar'){
+        list=(await fetchAwardList(OSCAR_WINNERS)).filter(m=>m.poster_path||m.overview);
+      } else {
+        const r=await fetch(discUrl(DISC_CAT));
+        const d=await r.json();
+        list=(d.results||[]).filter(m=>m.poster_path);
+      }
       DISC_CACHE[DISC_CAT]=list;
     }catch(e){
       $('#discoverBox').innerHTML=html+'<div class="err">불러오지 못했어요. 인터넷을 확인해 주세요.</div>'; return;
