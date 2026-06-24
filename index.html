@@ -312,34 +312,42 @@ function restoreStars(starsEl,id){
   const r=RATED[id];
   starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on', r && r.rating>=+s.dataset.n));
 }
-let activeStars=null, activeId=null, movedX=0, startX=0, startedOnStar=false, lastPreview=0;
+let activeStars=null, activeId=null, movedX=0, movedY=0, startX=0, startY=0, startedOnStar=false, lastPreview=0, cancelled=false;
 function onStarDown(e){
   const star=e.target.closest('.star');           // 반드시 별 위에서 시작
   const starsEl=e.target.closest('.stars, .dmStars');
   if(!starsEl || !star) return;                   // 별이 아니면(여백·옆) 무시 → 스크롤 정상
   activeStars=starsEl; activeId=+starsEl.dataset.mid;
-  startX=e.clientX; movedX=0; startedOnStar=true;
+  startX=e.clientX; startY=e.clientY; movedX=0; movedY=0; startedOnStar=true; cancelled=false;
   lastPreview=+star.dataset.n;                     // 처음 누른 별 번호 기억
 }
 function onStarMove(e){
-  if(!activeStars) return;
+  if(!activeStars||cancelled) return;
   movedX=Math.abs(e.clientX-startX);
+  movedY=Math.abs(e.clientY-startY);
+  // 세로로 더 많이 움직이면 = 스크롤 의도 → 별점 취소하고 원상복구
+  if(movedY>10 && movedY>movedX){
+    cancelled=true;
+    restoreStars(activeStars, activeId);
+    activeStars=null; activeId=null;
+    return;
+  }
   if(movedX>6){
     const n=starFromPoint(activeStars, e.clientX);
-    if(n){ lastPreview=n; previewStars(activeStars,n); }  // 마지막 미리본 값 기억
-    e.preventDefault();   // 드래그 중에만 스크롤 막음
+    if(n){ lastPreview=n; previewStars(activeStars,n); }
+    e.preventDefault();
   }
 }
 function onStarUp(e){
-  if(!activeStars){ return; }
+  if(!activeStars||cancelled){ activeStars=null; activeId=null; return; }
   const starsEl=activeStars, id=activeId;
   let n=0;
   if(movedX>6){
-    n=starFromPoint(starsEl, e.clientX) || lastPreview;  // 좌표 실패 시 마지막 미리본 값
+    n=starFromPoint(starsEl, e.clientX) || lastPreview;
   } else {
     const st=(e.target&&e.target.closest)?e.target.closest('.star'):null;
-    if(st && st.parentElement===starsEl) n=+st.dataset.n; // 탭: 정확히 그 별만
-    else n=lastPreview;                                   // 처음 누른 별 값으로 보정
+    if(st && st.parentElement===starsEl) n=+st.dataset.n;
+    else n=lastPreview;
   }
   activeStars=null; activeId=null; startedOnStar=false;
   if(n && id){ rate(id,n); }
@@ -393,13 +401,8 @@ function rate(id,n){
   };
   save();
   RECS_DIRTY=true;   // 추천을 다음에 새로 계산해야 함 (지금 화면은 유지)
-  // 현재 탭에 따라 갱신 방식 분기
-  if(curView==='recs'){
-    // 추천 화면은 흐트러지지 않게 — 그 영화 행의 별점/배지만 갱신
-    updateStarRows(id,n);
-  } else {
-    refreshCurrentView();
-  }
+  // 어느 화면이든 보이는 모든 별을 RATED 기준으로 강제 동기화 (잔상 원천 차단)
+  syncAllStars();
   const dmStars=document.querySelector('.dmStars[data-mid="'+id+'"]');
   if(dmStars){
     dmStars.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n));
@@ -408,16 +411,26 @@ function rate(id,n){
     badge.textContent='내 평점 ★'+n;
   }
 }
-// 화면에 보이는 같은 영화의 별점 행들을 갱신 (목록 재배치 없이)
-function updateStarRows(id,n){
-  document.querySelectorAll('.stars[data-mid="'+id+'"], .dmStars[data-mid="'+id+'"]').forEach(starsEl=>{
-    starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n));
+// 화면에 보이는 '모든' 별점 행을 저장된 평점(RATED)과 정확히 일치시킴
+function syncAllStars(){
+  document.querySelectorAll('.stars[data-mid]').forEach(starsEl=>{
+    const mid=+starsEl.dataset.mid;
+    const r=RATED[mid];
+    starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on', !!r && r.rating>=+s.dataset.n));
     const info=starsEl.closest('.mInfo')||starsEl.parentElement;
+    if(!info) return;
     let badge=info.querySelector('.myScore');
-    if(!badge){ badge=document.createElement('span'); badge.className='myScore'; info.appendChild(badge); }
-    badge.textContent='내 평점 ★'+n;
+    if(r){
+      if(!badge){
+        badge=document.createElement('span'); badge.className='myScore';
+        const rb=info.querySelector('.rowBottom');
+        if(rb) rb.insertBefore(badge, rb.firstChild); else info.appendChild(badge);
+      }
+      badge.textContent='내 평점 ★'+r.rating;
+    } else if(badge){ badge.remove(); }
   });
 }
+function updateStarRows(id,n){ syncAllStars(); }
 function unrate(id){
   delete RATED[id]; save(); RECS_DIRTY=true;
   // 화면의 별점 표시 초기화
