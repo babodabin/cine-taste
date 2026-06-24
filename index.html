@@ -98,6 +98,34 @@
 
   .empty{text-align:center;color:var(--dim);font-size:13px;padding:40px 20px;line-height:1.7;}
   .err{background:#2a1416;border:1px solid #5a2228;color:#f0a0a4;font-size:12px;padding:11px 13px;border-radius:10px;margin:12px 0;line-height:1.5;}
+
+  .mPosterWrap{cursor:pointer;flex-shrink:0;}
+  .mTitle{cursor:pointer;}
+  .stars{touch-action:none;} /* 드래그 중 스크롤 방지 */
+
+  /* 상세 모달 */
+  #detailModal{position:fixed;inset:0;z-index:3000;display:none;}
+  #detailModal.show{display:block;}
+  .dmBackdrop{position:absolute;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(3px);}
+  .dmCard{position:absolute;left:0;right:0;bottom:0;max-height:88%;overflow-y:auto;
+    background:var(--bg2);border-top:1px solid var(--line);border-radius:20px 20px 0 0;
+    padding:22px 20px calc(28px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch;}
+  #dmClose{position:absolute;right:16px;top:14px;width:32px;height:32px;border:none;border-radius:50%;
+    background:#2a2a3a;color:var(--dim);font-size:19px;cursor:pointer;z-index:2;}
+  .dmHead{display:flex;gap:14px;}
+  .dmPoster{width:96px;height:144px;border-radius:10px;object-fit:cover;flex-shrink:0;background:#222;}
+  .dmHeadInfo{flex:1;min-width:0;padding-right:30px;}
+  .dmTitle{font-size:20px;font-weight:900;line-height:1.3;}
+  .dmOrig{font-size:12px;color:var(--dim);margin-top:3px;}
+  .dmMeta{font-size:13px;color:var(--dim);margin-top:8px;}
+  .dmGenre{font-size:12px;color:var(--gold);margin-top:7px;}
+  .dmStars{display:flex;align-items:center;gap:3px;margin:16px 0 4px;touch-action:none;}
+  .dmStars .star{font-size:27px;}
+  .dmRow{display:flex;gap:10px;margin-top:11px;font-size:13px;}
+  .dmK{color:var(--dim);min-width:38px;font-weight:700;}
+  .dmV{color:var(--txt);flex:1;line-height:1.5;}
+  .dmOverview{font-size:13.5px;color:#c8c6d5;line-height:1.7;margin-top:15px;
+    border-top:1px solid var(--line);padding-top:15px;}
 </style>
 </head>
 <body>
@@ -132,6 +160,13 @@
   </div>
 </main>
 
+<div id="detailModal">
+  <div class="dmBackdrop"></div>
+  <div class="dmCard">
+    <button id="dmClose">×</button>
+    <div id="dmBody"></div>
+  </div>
+</div>
 <script>
 const API_KEY="864e86895b703ac1bf9cc387096d6e80";
 const IMG="https://image.tmdb.org/t/p/w185";
@@ -158,17 +193,41 @@ const gname=id=>GENRES[id]||"";
 
 // ---- API ----
 async function searchMovies(q){
-  const r=await fetch(`${BASE}/search/movie?api_key=${API_KEY}&language=ko-KR&query=${encodeURIComponent(q)}&include_adult=false`);
-  if(!r.ok) throw new Error("검색 실패 ("+r.status+")");
-  const d=await r.json();
-  return (d.results||[]).filter(m=>m.poster_path||m.overview);
+  async function hit(query){
+    const r=await fetch(`${BASE}/search/movie?api_key=${API_KEY}&language=ko-KR&query=${encodeURIComponent(query)}&include_adult=false`);
+    if(!r.ok) throw new Error("검색 실패 ("+r.status+")");
+    const d=await r.json();
+    return (d.results||[]).filter(m=>m.poster_path||m.overview);
+  }
+  let res=await hit(q);
+  if(res.length) return res;
+  // 결과 없으면 띄어쓰기 변형 시도: 공백 제거 / 공백 넣기
+  const noSpace=q.replace(/\s+/g,'');
+  if(noSpace!==q){ res=await hit(noSpace); if(res.length) return res; }
+  // 붙여쓴 한글을 2~5글자 단위로 끊어 공백 삽입 시도
+  if(!/\s/.test(q) && q.length>=4){
+    for(const cut of [2,3,4]){
+      const spaced=q.slice(0,cut)+' '+q.slice(cut);
+      res=await hit(spaced);
+      if(res.length) return res;
+    }
+  }
+  return [];
 }
 async function similarOf(id){
-  try{
-    const r=await fetch(`${BASE}/movie/${id}/recommendations?api_key=${API_KEY}&language=ko-KR`);
-    const d=await r.json();
-    return d.results||[];
-  }catch(e){ return []; }
+  // recommendations(개인화) + similar(장르기반) 둘 다 모아 다양성 ↑
+  const urls=[
+    `${BASE}/movie/${id}/recommendations?api_key=${API_KEY}&language=ko-KR`,
+    `${BASE}/movie/${id}/similar?api_key=${API_KEY}&language=ko-KR`
+  ];
+  const out=[]; const seen=new Set();
+  for(const u of urls){
+    try{
+      const r=await fetch(u); const d=await r.json();
+      (d.results||[]).forEach(m=>{ if(!seen.has(m.id)){ seen.add(m.id); out.push(m); } });
+    }catch(e){}
+  }
+  return out;
 }
 
 // ---- 렌더 헬퍼 ----
@@ -185,27 +244,54 @@ function movieRowHtml(m,opts={}){
   const rated=RATED[m.id];
   const stars=[1,2,3,4,5].map(n=>`<span class="star ${rated&&rated.rating>=n?'on':''}" data-id="${m.id}" data-n="${n}">★</span>`).join('');
   return `<div class="mRow">
-    ${posterTag(m)}
+    <div class="mPosterWrap" data-detail="${m.id}">${posterTag(m)}</div>
     <div class="mInfo">
-      <div class="mTitle">${esc(m.title)}</div>
+      <div class="mTitle" data-detail="${m.id}">${esc(m.title)}</div>
       <div class="mMeta">${yearOf(m)||'—'} ${m.vote_average?`· <span class="tmdbScore">★ ${m.vote_average.toFixed(1)}</span>`:''}</div>
       ${gtext?`<div class="mGenre">${gtext}</div>`:''}
       ${opts.overview&&m.overview?`<div class="mOverview">${esc(m.overview)}</div>`:''}
       ${opts.why?`<div class="recWhy">${esc(opts.why)}</div>`:''}
-      <div class="stars">${stars}</div>
+      <div class="stars" data-mid="${m.id}">${stars}</div>
       ${rated?`<span class="myScore">내 평점 ★${rated.rating}</span>`:''}
     </div>
   </div>`;
 }
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
-// ---- 별점 클릭 (이벤트 위임) ----
+// ---- 별점: 탭 + 드래그(밀어서 선택) ----
 document.addEventListener('click',e=>{
   const st=e.target.closest('.star');
-  if(st){
-    const id=+st.dataset.id, n=+st.dataset.n;
-    rate(id,n);
-  }
+  if(st){ rate(+st.dataset.id, +st.dataset.n); }
+});
+// 드래그로 별점 선택: 별 묶음 위에서 손가락/마우스를 밀면 그 위치까지 채워짐
+function starFromPoint(starsEl,clientX){
+  const stars=[...starsEl.querySelectorAll('.star')];
+  let pick=0;
+  stars.forEach(s=>{ const r=s.getBoundingClientRect(); if(clientX>=r.left) pick=+s.dataset.n; });
+  return pick;
+}
+function bindStarDrag(ev,clientXgetter){
+  const starsEl=ev.target.closest('.stars, .dmStars');
+  if(!starsEl) return;
+  const id=+starsEl.dataset.mid;
+  let dragging=true;
+  const preview=n=>{ starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n)); };
+  const move=e2=>{ if(!dragging) return; const x=clientXgetter(e2); const n=starFromPoint(starsEl,x); if(n) preview(n); };
+  const end=e2=>{ dragging=false; const x=clientXgetter(e2||ev); const n=starFromPoint(starsEl,x); if(n) rate(id,n);
+    document.removeEventListener('touchmove',move); document.removeEventListener('touchend',end);
+    document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',end); };
+  if(clientXgetter===txGet){ document.addEventListener('touchmove',move,{passive:false}); document.addEventListener('touchend',end); }
+  else { document.addEventListener('mousemove',move); document.addEventListener('mouseup',end); }
+}
+const txGet=e=>e.touches&&e.touches[0]?e.touches[0].clientX:(e.changedTouches?e.changedTouches[0].clientX:0);
+const mxGet=e=>e.clientX;
+document.addEventListener('touchstart',e=>{ if(e.target.closest('.stars, .dmStars')){ bindStarDrag(e,txGet); } },{passive:true});
+document.addEventListener('mousedown',e=>{ if(e.target.closest('.stars, .dmStars')){ bindStarDrag(e,mxGet); } });
+
+// ---- 영화 상세 열기 ----
+document.addEventListener('click',e=>{
+  const d=e.target.closest('[data-detail]');
+  if(d && !e.target.closest('.star') && !e.target.closest('.dmStars')){ openDetail(+d.dataset.detail); }
 });
 let LASTRESULTS={}; // id -> movie (검색결과 캐시, 평점 저장용)
 function rate(id,n){
@@ -219,6 +305,14 @@ function rate(id,n){
   };
   save();
   refreshCurrentView();
+  // 상세 모달이 열려 있으면 그 별점도 갱신
+  const dmStars=document.querySelector('.dmStars[data-mid="'+id+'"]');
+  if(dmStars){
+    dmStars.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n));
+    let badge=dmStars.querySelector('.myScore');
+    if(!badge){ badge=document.createElement('span'); badge.className='myScore'; dmStars.appendChild(badge); }
+    badge.textContent='내 평점 ★'+n;
+  }
 }
 function unrate(id){ delete RATED[id]; save(); refreshCurrentView(); }
 
@@ -278,20 +372,20 @@ async function renderRecs(){
     (m.genres||[]).forEach(g=>{ genreW[g]=(genreW[g]||0)+w; });
   });
 
-  // 2) 후보 수집 = 높게 준 영화들의 추천작
-  const liked=rated.filter(m=>m.rating>=4).sort((a,b)=>b.rating-a.rating);
-  const seeds=(liked.length?liked:rated.sort((a,b)=>b.rating-a.rating)).slice(0,8);
+  // 2) 후보 수집 = 평가한 영화들의 추천작 (평점 높을수록 시드 우선순위 ↑)
+  const seeds=rated.slice().sort((a,b)=>b.rating-a.rating).slice(0,12);
   const seen=new Set(rated.map(m=>m.id));
   const cand={};
   for(const s of seeds){
-    const sims=await similarOf(s.id);
-    sims.forEach(m=>{
+    const seedWeight=Math.max(0.2, s.rating-2); // 5점→3, 4점→2, 3점→1 (낮은 평점 시드는 영향↓)
+    const sims=await similarOf(s.id);   // recommendations + similar 합본
+    sims.forEach((m,idx)=>{
       if(seen.has(m.id)) return;
-      if(!cand[m.id]) cand[m.id]={m,score:0,from:new Set()};
-      // 후보 점수 = 시드영화 추천 등장 + 장르 가중치
+      if(!cand[m.id]) cand[m.id]={m,score:0,from:[]};
       let gs=0; (m.genre_ids||[]).forEach(g=>{ gs+=(genreW[g]||0); });
-      cand[m.id].score += 1 + gs*0.3 + (m.vote_average||0)*0.05;
-      cand[m.id].from.add(s.title);
+      const rankBonus=Math.max(0,(20-idx))*0.04; // 추천 상위일수록 가산
+      cand[m.id].score += seedWeight + gs*0.25 + (m.vote_average||0)*0.04 + rankBonus;
+      if(!cand[m.id].from.includes(s.title)) cand[m.id].from.push(s.title);
     });
   }
 
@@ -315,6 +409,44 @@ async function renderRecs(){
   }).join('');
   $('#recsBox').innerHTML=html;
 }
+
+// ---- 영화 상세 ----
+async function openDetail(id){
+  const modal=$('#detailModal'); const body=$('#dmBody');
+  body.innerHTML='<div class="loading"><span class="spin"></span>불러오는 중…</div>';
+  modal.classList.add('show');
+  try{
+    const r=await fetch(`${BASE}/movie/${id}?api_key=${API_KEY}&language=ko-KR&append_to_response=credits`);
+    const d=await r.json();
+    const dir=(d.credits&&d.credits.crew||[]).filter(c=>c.job==='Director').map(c=>c.name).join(', ');
+    const cast=(d.credits&&d.credits.cast||[]).slice(0,5).map(c=>c.name).join(', ');
+    const genres=(d.genres||[]).map(g=>g.name).join(' · ');
+    const runtime=d.runtime?d.runtime+'분':'';
+    const year=(d.release_date||'').slice(0,4);
+    const rated=RATED[id];
+    LASTRESULTS[id]={id,title:d.title,release_date:d.release_date,poster_path:d.poster_path,genre_ids:(d.genres||[]).map(g=>g.id),overview:d.overview,vote_average:d.vote_average};
+    const stars=[1,2,3,4,5].map(n=>`<span class="star ${rated&&rated.rating>=n?'on':''}" data-id="${id}" data-n="${n}">★</span>`).join('');
+    body.innerHTML=`
+      <div class="dmHead">
+        ${d.poster_path?`<img class="dmPoster" src="https://image.tmdb.org/t/p/w342${d.poster_path}">`:''}
+        <div class="dmHeadInfo">
+          <div class="dmTitle">${esc(d.title)}</div>
+          ${d.original_title&&d.original_title!==d.title?`<div class="dmOrig">${esc(d.original_title)}</div>`:''}
+          <div class="dmMeta">${year||'—'}${runtime?' · '+runtime:''}${d.vote_average?` · <span class="tmdbScore">★ ${d.vote_average.toFixed(1)}</span>`:''}</div>
+          ${genres?`<div class="dmGenre">${genres}</div>`:''}
+        </div>
+      </div>
+      <div class="dmStars" data-mid="${id}">${stars}${rated?`<span class="myScore">내 평점 ★${rated.rating}</span>`:''}</div>
+      ${dir?`<div class="dmRow"><span class="dmK">감독</span><span class="dmV">${esc(dir)}</span></div>`:''}
+      ${cast?`<div class="dmRow"><span class="dmK">출연</span><span class="dmV">${esc(cast)}</span></div>`:''}
+      ${d.overview?`<div class="dmOverview">${esc(d.overview)}</div>`:'<div class="dmOverview" style="color:#666">줄거리 정보가 없어요.</div>'}
+    `;
+  }catch(e){
+    body.innerHTML='<div class="err">정보를 불러오지 못했어요. 인터넷을 확인해 주세요.</div>';
+  }
+}
+$('#dmClose').addEventListener('click',()=>$('#detailModal').classList.remove('show'));
+$('#detailModal').querySelector('.dmBackdrop').addEventListener('click',()=>$('#detailModal').classList.remove('show'));
 
 // ---- 탭 ----
 let curView='search';
