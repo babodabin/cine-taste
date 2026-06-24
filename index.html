@@ -63,10 +63,10 @@
   .tmdbScore{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--gold);font-weight:700;}
 
   /* 별점 */
-  .stars{display:flex;gap:2px;margin-top:8px;}
-  .star{font-size:21px;color:#3a3a4a;cursor:pointer;line-height:1;transition:.1s;}
+  .stars{display:flex;gap:6px;margin-top:10px;touch-action:none;}
+  .star{font-size:30px;color:#3a3a4a;cursor:pointer;line-height:1;transition:.1s;padding:2px 1px;}
   .star.on{color:var(--gold);}
-  .star:active{transform:scale(1.2);}
+  .star:active{transform:scale(1.15);}
 
   .btn{font-family:inherit;font-weight:700;font-size:12.5px;border:none;border-radius:9px;padding:8px 13px;cursor:pointer;}
   .btnAdd{background:var(--teal);color:#04201e;}
@@ -88,7 +88,14 @@
     border-radius:14px;padding:14px;margin-bottom:18px;}
   .tasteBox h3{font-size:13px;color:var(--gold);margin-bottom:9px;}
   .chips{display:flex;flex-wrap:wrap;gap:6px;}
-  .chip{font-size:11px;color:#e8d9a8;background:#2a2208;border:1px solid #4a3c12;padding:3px 9px;border-radius:20px;}
+  .chip{font-size:11px;color:#e8d9a8;background:#2a2208;border:1px solid #4a3c12;padding:5px 12px;border-radius:20px;cursor:pointer;transition:.12s;}
+  .chip.on{background:var(--gold);color:#1a1505;border-color:var(--gold);font-weight:700;}
+  .tasteHint{font-size:10px;color:#8a7a4a;font-weight:400;margin-left:6px;}
+  .recBtns{display:flex;flex-direction:column;gap:9px;margin:18px 0 10px;}
+  .recBtn{font-family:inherit;font-weight:700;font-size:13.5px;padding:13px;border-radius:11px;cursor:pointer;border:1px solid var(--line);}
+  .recBtn.more{background:var(--teal);color:#04201e;border-color:var(--teal);}
+  .recBtn.refresh{background:#1c1c28;color:var(--gold);}
+  .recBtn.refresh2{background:transparent;color:var(--dim);}
   .recWhy{font-size:10.5px;color:var(--teal);margin-top:6px;}
 
   .loading{text-align:center;color:var(--dim);font-size:13px;padding:30px;}
@@ -249,7 +256,7 @@ function movieRowHtml(m,opts={}){
       <div class="mTitle" data-detail="${m.id}">${esc(m.title)}</div>
       <div class="mMeta">${yearOf(m)||'—'} ${m.vote_average?`· <span class="tmdbScore">★ ${m.vote_average.toFixed(1)}</span>`:''}</div>
       ${gtext?`<div class="mGenre">${gtext}</div>`:''}
-      ${opts.overview&&m.overview?`<div class="mOverview">${esc(m.overview)}</div>`:''}
+      ${opts.overview&&m.overview?`<div class="mOverview" data-detail="${m.id}">${esc(m.overview)}</div>`:''}
       ${opts.why?`<div class="recWhy">${esc(opts.why)}</div>`:''}
       <div class="stars" data-mid="${m.id}">${stars}</div>
       ${rated?`<span class="myScore">내 평점 ★${rated.rating}</span>`:''}
@@ -258,40 +265,48 @@ function movieRowHtml(m,opts={}){
 }
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
-// ---- 별점: 탭 + 드래그(밀어서 선택) ----
-document.addEventListener('click',e=>{
-  const st=e.target.closest('.star');
-  if(st){ rate(+st.dataset.id, +st.dataset.n); }
-});
-// 드래그로 별점 선택: 별 묶음 위에서 손가락/마우스를 밀면 그 위치까지 채워짐
+// ---- 별점: 탭 + 드래그 통합 (한 행만 정확히 조작) ----
 function starFromPoint(starsEl,clientX){
   const stars=[...starsEl.querySelectorAll('.star')];
   let pick=0;
-  stars.forEach(s=>{ const r=s.getBoundingClientRect(); if(clientX>=r.left) pick=+s.dataset.n; });
+  stars.forEach(s=>{ const r=s.getBoundingClientRect(); if(clientX>=r.left-4) pick=+s.dataset.n; });
   return pick;
 }
-function bindStarDrag(ev,clientXgetter){
-  const starsEl=ev.target.closest('.stars, .dmStars');
-  if(!starsEl) return;
-  const id=+starsEl.dataset.mid;
-  let dragging=true;
-  const preview=n=>{ starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n)); };
-  const move=e2=>{ if(!dragging) return; const x=clientXgetter(e2); const n=starFromPoint(starsEl,x); if(n) preview(n); };
-  const end=e2=>{ dragging=false; const x=clientXgetter(e2||ev); const n=starFromPoint(starsEl,x); if(n) rate(id,n);
-    document.removeEventListener('touchmove',move); document.removeEventListener('touchend',end);
-    document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',end); };
-  if(clientXgetter===txGet){ document.addEventListener('touchmove',move,{passive:false}); document.addEventListener('touchend',end); }
-  else { document.addEventListener('mousemove',move); document.addEventListener('mouseup',end); }
+function previewStars(starsEl,n){
+  starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n));
 }
-const txGet=e=>e.touches&&e.touches[0]?e.touches[0].clientX:(e.changedTouches?e.changedTouches[0].clientX:0);
-const mxGet=e=>e.clientX;
-document.addEventListener('touchstart',e=>{ if(e.target.closest('.stars, .dmStars')){ bindStarDrag(e,txGet); } },{passive:true});
-document.addEventListener('mousedown',e=>{ if(e.target.closest('.stars, .dmStars')){ bindStarDrag(e,mxGet); } });
+// 포인터 이벤트로 통일 (터치·마우스 모두 pointer로 들어옴)
+let activeStars=null, activeId=null;
+function onStarDown(e){
+  const starsEl=e.target.closest('.stars, .dmStars');
+  if(!starsEl) return;
+  activeStars=starsEl; activeId=+starsEl.dataset.mid;
+  const n=starFromPoint(starsEl, e.clientX);
+  if(n) previewStars(starsEl,n);
+  e.preventDefault();
+}
+function onStarMove(e){
+  if(!activeStars) return;
+  const n=starFromPoint(activeStars, e.clientX);
+  if(n) previewStars(activeStars,n);
+}
+function onStarUp(e){
+  if(!activeStars) return;
+  const n=starFromPoint(activeStars, e.clientX);
+  const id=activeId;            // 이 행의 영화 id만 사용 (다른 영화 영향 없음)
+  activeStars=null; activeId=null;
+  if(n && id) rate(id,n);
+}
+document.addEventListener('pointerdown',onStarDown);
+document.addEventListener('pointermove',onStarMove);
+document.addEventListener('pointerup',onStarUp);
+document.addEventListener('pointercancel',()=>{activeStars=null;activeId=null;});
 
-// ---- 영화 상세 열기 ----
+// ---- 영화 상세 열기 (포스터·제목·줄거리 클릭) ----
 document.addEventListener('click',e=>{
+  if(e.target.closest('.stars, .dmStars')) return;
   const d=e.target.closest('[data-detail]');
-  if(d && !e.target.closest('.star') && !e.target.closest('.dmStars')){ openDetail(+d.dataset.detail); }
+  if(d){ openDetail(+d.dataset.detail); }
 });
 let LASTRESULTS={}; // id -> movie (검색결과 캐시, 평점 저장용)
 function rate(id,n){
@@ -304,8 +319,8 @@ function rate(id,n){
     rating:n, overview:m.overview||'', vote:m.vote_average||m.vote||0
   };
   save();
+  RECS_CACHE=null;   // 평점이 바뀌면 추천 다시 계산하도록
   refreshCurrentView();
-  // 상세 모달이 열려 있으면 그 별점도 갱신
   const dmStars=document.querySelector('.dmStars[data-mid="'+id+'"]');
   if(dmStars){
     dmStars.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n));
@@ -357,58 +372,93 @@ function renderMine(){
 }
 
 // ---- 추천 (내 평점 + 장르/키워드 가중치) ----
-async function renderRecs(){
+let RECS_CACHE=null;     // 전체 후보(점수순) 캐시
+let RECS_FILTER=null;    // 선택된 장르 id (null=전체)
+let RECS_PAGE=0;         // 30편 단위 페이지
+
+async function renderRecs(force){
   const rated=Object.values(RATED);
   if(rated.length<1){
     $('#recsBox').innerHTML='<div class="empty">평가한 영화가 있어야 추천할 수 있어요.<br>먼저 본 영화에 별점을 매겨주세요.</div>';
-    return;
+    RECS_CACHE=null; return;
   }
-  $('#recsBox').innerHTML='<div class="loading"><span class="spin"></span>취향 분석 중…</div>';
-
-  // 1) 장르 가중치 = 내가 준 평점 합산 (높은 평점일수록 ↑)
-  const genreW={};
-  rated.forEach(m=>{
-    const w=m.rating-2.5; // 1~5 → -1.5~+2.5 (낮은 점수는 감점)
-    (m.genres||[]).forEach(g=>{ genreW[g]=(genreW[g]||0)+w; });
-  });
-
-  // 2) 후보 수집 = 평가한 영화들의 추천작 (평점 높을수록 시드 우선순위 ↑)
-  const seeds=rated.slice().sort((a,b)=>b.rating-a.rating).slice(0,12);
-  const seen=new Set(rated.map(m=>m.id));
-  const cand={};
-  for(const s of seeds){
-    const seedWeight=Math.max(0.2, s.rating-2); // 5점→3, 4점→2, 3점→1 (낮은 평점 시드는 영향↓)
-    const sims=await similarOf(s.id);   // recommendations + similar 합본
-    sims.forEach((m,idx)=>{
-      if(seen.has(m.id)) return;
-      if(!cand[m.id]) cand[m.id]={m,score:0,from:[]};
-      let gs=0; (m.genre_ids||[]).forEach(g=>{ gs+=(genreW[g]||0); });
-      const rankBonus=Math.max(0,(20-idx))*0.04; // 추천 상위일수록 가산
-      cand[m.id].score += seedWeight + gs*0.25 + (m.vote_average||0)*0.04 + rankBonus;
-      if(!cand[m.id].from.includes(s.title)) cand[m.id].from.push(s.title);
-    });
+  // 캐시가 없거나 강제 재계산일 때만 API 호출
+  if(!RECS_CACHE || force){
+    $('#recsBox').innerHTML='<div class="loading"><span class="spin"></span>취향 분석 중…</div>';
+    const genreW={};
+    rated.forEach(m=>{ const w=m.rating-2.5; (m.genres||[]).forEach(g=>{ genreW[g]=(genreW[g]||0)+w; }); });
+    const seeds=rated.slice().sort((a,b)=>b.rating-a.rating).slice(0,12);
+    const seen=new Set(rated.map(m=>m.id));
+    const cand={};
+    for(const s of seeds){
+      const seedWeight=Math.max(0.2, s.rating-2);
+      const sims=await similarOf(s.id);
+      sims.forEach((m,idx)=>{
+        if(seen.has(m.id)) return;
+        if(!cand[m.id]) cand[m.id]={m,score:0,from:[]};
+        let gs=0; (m.genre_ids||[]).forEach(g=>{ gs+=(genreW[g]||0); });
+        const rankBonus=Math.max(0,(20-idx))*0.04;
+        cand[m.id].score += seedWeight + gs*0.25 + (m.vote_average||0)*0.04 + rankBonus;
+        if(!cand[m.id].from.includes(s.title)) cand[m.id].from.push(s.title);
+      });
+    }
+    RECS_CACHE={ list:Object.values(cand).sort((a,b)=>b.score-a.score), genreW };
+    RECS_PAGE=0;
   }
+  paintRecs();
+}
 
-  const ranked=Object.values(cand).sort((a,b)=>b.score-a.score).slice(0,30);
-  ranked.forEach(c=>LASTRESULTS[c.m.id]=c.m);
+function paintRecs(){
+  const {list,genreW}=RECS_CACHE;
+  list.forEach(c=>LASTRESULTS[c.m.id]=c.m);
 
-  // 취향 요약 칩 (상위 장르)
-  const topG=Object.entries(genreW).filter(([,w])=>w>0).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([g])=>gname(+g)).filter(Boolean);
-  let html=`<div class="tasteBox"><h3>🎯 내 취향 분석</h3>
-    <div class="chips">${topG.length?topG.map(g=>`<span class="chip">${g}</span>`).join(''):'<span class="chip">평점을 더 쌓아주세요</span>'}</div>
-    <div class="recWhy">평가한 ${rated.length}편을 분석했어요. 높게 준 영화와 비슷하고, 좋아하는 장르일수록 위로 올려요.</div></div>`;
+  // 취향 칩 (누르면 그 장르만 필터)
+  const topG=Object.entries(genreW).filter(([,w])=>w>0).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([g])=>+g);
+  let html=`<div class="tasteBox"><h3>🎯 내 취향 분석 <span class="tasteHint">장르를 누르면 그 장르만 봐요</span></h3>
+    <div class="chips">
+      <span class="chip ${RECS_FILTER===null?'on':''}" data-g="all">전체</span>
+      ${topG.map(g=>`<span class="chip ${RECS_FILTER===g?'on':''}" data-g="${g}">${gname(g)}</span>`).join('')}
+    </div></div>`;
 
-  if(!ranked.length){
-    html+='<div class="empty">추천 후보를 못 찾았어요.<br>별점 4점 이상 영화를 몇 개 더 평가해 주세요.</div>';
+  // 필터 적용
+  let filtered=RECS_FILTER===null ? list : list.filter(c=>(c.m.genre_ids||[]).includes(RECS_FILTER));
+  const total=filtered.length;
+  const pageItems=filtered.slice(RECS_PAGE*30,(RECS_PAGE+1)*30);
+
+  if(!pageItems.length){
+    if(RECS_PAGE>0){ RECS_PAGE=0; paintRecs(); return; }
+    html+='<div class="empty">이 장르의 추천이 없어요.<br>다른 장르나 전체를 눌러보세요.</div>';
     $('#recsBox').innerHTML=html; return;
   }
-  html+=`<div class="secTitle">추천 영화 <span class="countTag">${ranked.length}편</span></div>`;
-  html+=ranked.map(c=>{
+  const filterName=RECS_FILTER===null?'추천 영화':gname(RECS_FILTER)+' 추천';
+  html+=`<div class="secTitle">${filterName} <span class="countTag">${total}편 중 ${RECS_PAGE*30+1}~${RECS_PAGE*30+pageItems.length}</span></div>`;
+  html+=pageItems.map(c=>{
     const why='비슷한 영화: '+[...c.from].slice(0,2).join(', ');
     return movieRowHtml(c.m,{overview:true,why});
   }).join('');
+
+  // 더보기 / 새로고침 버튼
+  const hasMore=(RECS_PAGE+1)*30<total;
+  html+=`<div class="recBtns">
+    ${hasMore?`<button class="recBtn more" id="recMore">다음 ${Math.min(30,total-(RECS_PAGE+1)*30)}편 보기 ↓</button>`:`<button class="recBtn refresh" id="recRefresh">처음부터 다시 보기 ↻</button>`}
+    <button class="recBtn refresh2" id="recReload">새로 추천받기 ↻</button>
+  </div>`;
+
   $('#recsBox').innerHTML=html;
+  document.getElementById('recsBox').scrollTop=0;
 }
+
+// 추천 칩·버튼 클릭
+document.addEventListener('click',e=>{
+  const chip=e.target.closest('.chip[data-g]');
+  if(chip){
+    RECS_FILTER = chip.dataset.g==='all' ? null : +chip.dataset.g;
+    RECS_PAGE=0; paintRecs(); return;
+  }
+  if(e.target.id==='recMore'){ RECS_PAGE++; paintRecs(); window.scrollTo(0,0); $('main').scrollTop=0; }
+  if(e.target.id==='recRefresh'){ RECS_PAGE=0; paintRecs(); $('main').scrollTop=0; }
+  if(e.target.id==='recReload'){ renderRecs(true); $('main').scrollTop=0; }
+});
 
 // ---- 영화 상세 ----
 async function openDetail(id){
