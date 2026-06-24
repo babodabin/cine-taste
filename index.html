@@ -245,11 +245,23 @@ const gname=id=>GENRES[id]||"";
 
 // ---- API ----
 async function searchMovies(q){
+  // 검색 결과 정렬용 점수: 인기도·평가수 우선, 제작이야기·공연 등 마이너 영상물은 감점
+  function rankScore(m){
+    let s=(m.popularity||0) + Math.log10((m.vote_count||0)+1)*30;
+    const g=m.genre_ids||[];
+    if(g.includes(99)) s-=200;      // 다큐멘터리 감점
+    if(g.includes(10402)) s-=200;   // 음악/공연 감점
+    // 제목에 제작/메이킹/비하인드 등 들어가면 추가 감점
+    if(/제작\s*이야기|메이킹|making|비하인드|behind|the movie|더 무비/i.test(m.title||'')) s-=150;
+    if((m.vote_count||0)<30) s-=100; // 평가 거의 없는 마이너작 감점
+    return s;
+  }
   async function hit(query){
     const r=await fetch(`${BASE}/search/movie?api_key=${API_KEY}&language=ko-KR&query=${encodeURIComponent(query)}&include_adult=false`);
     if(!r.ok) throw new Error("검색 실패 ("+r.status+")");
     const d=await r.json();
-    return (d.results||[]).filter(m=>m.poster_path||m.overview);
+    return (d.results||[]).filter(m=>m.poster_path||m.overview)
+      .sort((a,b)=>rankScore(b)-rankScore(a));
   }
   let res=await hit(q);
   if(res.length) return res;
@@ -627,9 +639,9 @@ function discUrl(cat){
   if(cat==='now')      return `${BASE}/discover/movie?api_key=${API_KEY}&language=ko-KR&sort_by=popularity.desc&primary_release_year=${y}&vote_count.gte=50`;
   if(cat==='top')      return `${BASE}/movie/top_rated?api_key=${API_KEY}&language=ko-KR`;
   // 한국영화 명작: 한국어 원어 + 평점순 (충분한 표본)
-  if(cat==='korea')    return `${BASE}/discover/movie?api_key=${API_KEY}&language=ko-KR&with_original_language=ko&sort_by=vote_average.desc&vote_count.gte=200`;
+  if(cat==='korea')    return `${BASE}/discover/movie?api_key=${API_KEY}&language=ko-KR&with_original_language=ko&sort_by=vote_average.desc&vote_count.gte=300&without_genres=99,10402`;
   // 스릴러·범죄 명작: 스릴러(53)+범죄(80) 장르 + 평점순
-  if(cat==='thriller') return `${BASE}/discover/movie?api_key=${API_KEY}&language=ko-KR&with_genres=53,80&sort_by=vote_average.desc&vote_count.gte=1000`;
+  if(cat==='thriller') return `${BASE}/discover/movie?api_key=${API_KEY}&language=ko-KR&with_genres=53,80&sort_by=vote_average.desc&vote_count.gte=1000&without_genres=99,10402`;
   return `${BASE}/movie/top_rated?api_key=${API_KEY}&language=ko-KR`;
 }
 
