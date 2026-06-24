@@ -63,10 +63,10 @@
   .tmdbScore{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--gold);font-weight:700;}
 
   /* 별점 */
-  .stars{display:flex;gap:6px;margin-top:10px;touch-action:none;}
-  .star{font-size:30px;color:#3a3a4a;cursor:pointer;line-height:1;transition:.1s;padding:2px 1px;}
+  .stars{display:flex;gap:0;margin-top:10px;touch-action:pan-y;}
+  .star{font-size:30px;color:#3a3a4a;cursor:pointer;line-height:1;transition:.1s;padding:4px 7px;}
   .star.on{color:var(--gold);}
-  .star:active{transform:scale(1.15);}
+  .star:active{transform:scale(1.12);}
 
   .btn{font-family:inherit;font-weight:700;font-size:12.5px;border:none;border-radius:9px;padding:8px 13px;cursor:pointer;}
   .btnAdd{background:var(--teal);color:#04201e;}
@@ -79,6 +79,8 @@
   .wishBtn{font-family:inherit;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:20px;
     background:#1c1c28;color:var(--dim);border:1px solid var(--line);cursor:pointer;}
   .wishBtn.on{background:#241d08;color:var(--gold);border-color:#4a3c12;}
+  .unrateBtn{font-family:inherit;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:20px;
+    background:#2a1416;color:#e0888c;border:1px solid #5a2228;cursor:pointer;}
   .dmWish{margin:6px 0 4px;font-size:13px;padding:9px 16px;}
 
   .secTitle{font-size:13px;font-weight:900;color:var(--dim);letter-spacing:1px;text-transform:uppercase;
@@ -131,8 +133,8 @@
   .dmOrig{font-size:12px;color:var(--dim);margin-top:3px;}
   .dmMeta{font-size:13px;color:var(--dim);margin-top:8px;}
   .dmGenre{font-size:12px;color:var(--gold);margin-top:7px;}
-  .dmStars{display:flex;align-items:center;gap:3px;margin:16px 0 4px;touch-action:none;}
-  .dmStars .star{font-size:27px;}
+  .dmStars{display:flex;align-items:center;gap:0;margin:16px 0 4px;touch-action:pan-y;flex-wrap:wrap;}
+  .dmStars .star{font-size:30px;padding:4px 7px;}
   .dmRow{display:flex;gap:10px;margin-top:11px;font-size:13px;}
   .dmK{color:var(--dim);min-width:38px;font-weight:700;}
   .dmV{color:var(--txt);flex:1;line-height:1.5;}
@@ -279,6 +281,7 @@ function movieRowHtml(m,opts={}){
       <div class="rowBottom">
         ${rated?`<span class="myScore">내 평점 ★${rated.rating}</span>`:''}
         <button class="wishBtn ${WISH[m.id]?'on':''}" data-wish="${m.id}">${WISH[m.id]?'★ 보고싶음':'☆ 보고싶다'}</button>
+        ${opts.del?`<button class="unrateBtn" data-unrate="${m.id}">평점 취소</button>`:''}
       </div>
     </div>
   </div>`;
@@ -309,41 +312,42 @@ function restoreStars(starsEl,id){
   const r=RATED[id];
   starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on', r && r.rating>=+s.dataset.n));
 }
-let activeStars=null, activeId=null, movedX=0, startX=0;
+let activeStars=null, activeId=null, movedX=0, startX=0, startedOnStar=false;
 function onStarDown(e){
+  const star=e.target.closest('.star');           // 반드시 별 위에서 시작
   const starsEl=e.target.closest('.stars, .dmStars');
-  if(!starsEl) return;
-  activeStars=starsEl; activeId=+starsEl.dataset.mid; startX=e.clientX; movedX=0;
-  // 다운 시점엔 미리보기 안 함 (탭만 누르고 떼는 경우 5점 잔상 방지)
-  e.preventDefault();
+  if(!starsEl || !star) return;                   // 별이 아니면(여백·옆) 무시 → 스크롤 정상
+  activeStars=starsEl; activeId=+starsEl.dataset.mid;
+  startX=e.clientX; movedX=0; startedOnStar=true;
+  // 다운 시점엔 미리보기 안 함
 }
 function onStarMove(e){
   if(!activeStars) return;
   movedX=Math.abs(e.clientX-startX);
-  if(movedX>6){  // 실제로 밀 때만 미리보기
+  if(movedX>6){
     const n=starFromPoint(activeStars, e.clientX);
     if(n) previewStars(activeStars,n);
+    e.preventDefault();   // 드래그 중에만 스크롤 막음
   }
 }
 function onStarUp(e){
-  if(!activeStars) return;
+  if(!activeStars){ return; }
   const starsEl=activeStars, id=activeId;
-  let n;
+  let n=0;
   if(movedX>6){
-    n=starFromPoint(starsEl, e.clientX);           // 드래그: 손가락 위치
+    n=starFromPoint(starsEl, e.clientX);                 // 드래그: 손가락 위치
   } else {
-    // 탭: 정확히 눌린 별의 번호
     const st=(e.target&&e.target.closest)?e.target.closest('.star'):null;
-    n = st ? +st.dataset.n : starFromPoint(starsEl, e.clientX);
+    if(st && st.parentElement===starsEl) n=+st.dataset.n; // 탭: 정확히 그 별만
   }
-  activeStars=null; activeId=null;
+  activeStars=null; activeId=null; startedOnStar=false;
   if(n && id){ rate(id,n); }
-  else if(id){ restoreStars(starsEl,id); }       // 평점 안 정해지면 잔상 복원
+  else if(id){ restoreStars(starsEl,id); }
 }
 document.addEventListener('pointerdown',onStarDown);
 document.addEventListener('pointermove',onStarMove);
 document.addEventListener('pointerup',onStarUp);
-document.addEventListener('pointercancel',()=>{ if(activeStars&&activeId) restoreStars(activeStars,activeId); activeStars=null;activeId=null;});
+document.addEventListener('pointercancel',()=>{ if(activeStars&&activeId) restoreStars(activeStars,activeId); activeStars=null;activeId=null;startedOnStar=false;});
 
 // ---- 영화 상세 열기 (포스터·제목·줄거리 클릭) ----
 document.addEventListener('click',e=>{
@@ -373,6 +377,8 @@ function toggleWish(id){
 document.addEventListener('click',e=>{
   const w=e.target.closest('[data-wish]');
   if(w){ toggleWish(+w.dataset.wish); }
+  const u=e.target.closest('[data-unrate]');
+  if(u){ unrate(+u.dataset.unrate); }
 });
 let LASTRESULTS={}; // id -> movie (검색결과 캐시, 평점 저장용)
 function rate(id,n){
@@ -411,7 +417,16 @@ function updateStarRows(id,n){
     badge.textContent='내 평점 ★'+n;
   });
 }
-function unrate(id){ delete RATED[id]; save(); refreshCurrentView(); }
+function unrate(id){
+  delete RATED[id]; save(); RECS_DIRTY=true;
+  // 화면의 별점 표시 초기화
+  document.querySelectorAll('.stars[data-mid="'+id+'"], .dmStars[data-mid="'+id+'"]').forEach(starsEl=>{
+    starsEl.querySelectorAll('.star').forEach(s=>s.classList.remove('on'));
+    const info=starsEl.closest('.mInfo')||starsEl.parentElement;
+    const badge=info.querySelector('.myScore'); if(badge) badge.remove();
+  });
+  refreshCurrentView();
+}
 
 // ---- 검색 ----
 let qTimer=null;
@@ -447,7 +462,7 @@ function renderMine(){
   const head=`<div class="secTitle">내가 평가한 영화 <span class="countTag">${arr.length}편</span></div>`;
   $('#mineList').innerHTML=head+arr.map(m=>{
     const mm={id:m.id,title:m.title,release_date:(m.year||'')+'-01-01',poster_path:m.poster,genre_ids:m.genres,vote_average:m.vote,overview:m.overview};
-    return movieRowHtml(mm,{});
+    return movieRowHtml(mm,{del:true});
   }).join('');
 }
 
