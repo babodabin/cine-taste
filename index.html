@@ -141,6 +141,16 @@
   .dmV{color:var(--txt);flex:1;line-height:1.5;}
   .dmOverview{font-size:13.5px;color:#c8c6d5;line-height:1.7;margin-top:15px;
     border-top:1px solid var(--line);padding-top:15px;}
+
+  /* 인물(감독·배우) 헤더 */
+  .personHead{display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#13131c,#1a1505);
+    border:1px solid #3a2f10;border-radius:14px;padding:12px;margin:18px 0 13px;}
+  .personHead:first-child{margin-top:0;}
+  .personPic{width:54px;height:54px;border-radius:50%;object-fit:cover;background:#222;flex-shrink:0;}
+  .personPicEmpty{width:54px;height:54px;border-radius:50%;background:#1e1e2a;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:26px;}
+  .personName{font-size:17px;font-weight:900;color:var(--txt);}
+  .personDept{font-size:12px;color:var(--gold);margin-top:3px;font-weight:700;}
 </style>
 </head>
 <body>
@@ -159,7 +169,7 @@
   <!-- 검색 -->
   <div class="view show" id="v-search">
     <div id="searchWrap">
-      <input id="q" type="text" placeholder="영화 제목 검색 (예: 기생충, 다크나이트)" autocomplete="off">
+      <input id="q" type="text" placeholder="제목·감독·배우 검색 (예: 봉준호, 기생충)" autocomplete="off">
       <button id="qClear">×</button>
     </div>
     <div id="searchResults"></div>
@@ -247,6 +257,47 @@ async function searchMovies(q){
   }
   return [];
 }
+
+// 인물(감독·배우) 검색 → 그 사람과 그 사람의 작품들 반환
+async function searchPeople(q){
+  try{
+    const r=await fetch(`${BASE}/search/person?api_key=${API_KEY}&language=ko-KR&query=${encodeURIComponent(q)}&include_adult=false`);
+    if(!r.ok) return [];
+    const d=await r.json();
+    // known_for가 있는(=실제 영화인) 인물만, 인기순으로 최대 3명
+    return (d.results||[])
+      .filter(p=>(p.known_for_department) && (p.known_for||[]).length)
+      .sort((a,b)=>(b.popularity||0)-(a.popularity||0))
+      .slice(0,3);
+  }catch(e){ return []; }
+}
+// 특정 인물의 출연/연출작 가져오기. 감독이면 연출작, 배우면 출연작 우선.
+async function personCredits(personId, dept){
+  try{
+    const r=await fetch(`${BASE}/person/${personId}/movie_credits?api_key=${API_KEY}&language=ko-KR`);
+    const d=await r.json();
+    const cast=d.cast||[];
+    const crew=(d.crew||[]).filter(c=>c.job==='Director');
+    let list;
+    if(dept==='Directing'){
+      // 감독: 연출작 우선, 부족하면 출연작 보충
+      const dirIds=new Set(crew.map(c=>c.id));
+      list=[...crew, ...cast.filter(c=>!dirIds.has(c.id))];
+    } else {
+      // 배우: 출연작 우선
+      const castIds=new Set(cast.map(c=>c.id));
+      list=[...cast, ...crew.filter(c=>!castIds.has(c.id))];
+    }
+    // 중복 제거 + 개봉작만 + 인기순
+    const seen=new Set(); const out=[];
+    list.forEach(m=>{
+      if(seen.has(m.id)) return; seen.add(m.id);
+      if(m.poster_path||m.overview) out.push(m);
+    });
+    return out.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
+  }catch(e){ return []; }
+}
+const deptKo=d=>d==='Directing'?'감독':(d==='Acting'?'배우':'영화인');
 async function similarOf(id){
   // recommendations(개인화) + similar(장르기반) 둘 다 모아 다양성 ↑
   const urls=[
@@ -428,10 +479,38 @@ async function doSearch(q){
   $('#searchHint').style.display='none';
   $('#searchResults').innerHTML='<div class="loading"><span class="spin"></span>검색 중…</div>';
   try{
-    const res=await searchMovies(q);
+    // 영화 + 인물 동시 검색
+    const [res, people]=await Promise.all([ searchMovies(q), searchPeople(q) ]);
     LASTRESULTS={}; res.forEach(m=>LASTRESULTS[m.id]=m);
-    if(!res.length){ $('#searchResults').innerHTML='<div class="empty">검색 결과가 없어요.<br>다른 제목으로 찾아보세요.</div>'; return; }
-    $('#searchResults').innerHTML=res.map(m=>movieRowHtml(m,{overview:true,del:true})).join('');
+
+    let html='';
+
+    // 1) 인물(감독·배우) 결과 — 각 인물별 헤더 + 작품
+    if(people.length){
+      for(const p of people){
+        const credits=await personCredits(p.id, p.known_for_department);
+        if(!credits.length) continue;
+        credits.forEach(m=>LASTRESULTS[m.id]=m);
+        const top=credits.slice(0,10);
+        html+=`<div class="personHead">
+          ${p.profile_path?`<img class="personPic" src="${IMG}${p.profile_path}" alt="">`:`<div class="personPicEmpty">👤</div>`}
+          <div class="personInfo">
+            <div class="personName">${esc(p.name)}</div>
+            <div class="personDept">${deptKo(p.known_for_department)} · 작품 ${credits.length}편</div>
+          </div>
+        </div>`;
+        html+=top.map(m=>movieRowHtml(m,{overview:true,del:true})).join('');
+      }
+    }
+
+    // 2) 제목 검색 결과
+    if(res.length){
+      if(people.length && html) html+=`<div class="secTitle">제목 검색 결과 <span class="countTag">${res.length}편</span></div>`;
+      html+=res.map(m=>movieRowHtml(m,{overview:true,del:true})).join('');
+    }
+
+    if(!html){ $('#searchResults').innerHTML='<div class="empty">검색 결과가 없어요.<br>제목·감독·배우 이름으로 찾아보세요.</div>'; return; }
+    $('#searchResults').innerHTML=html;
   }catch(err){
     $('#searchResults').innerHTML=`<div class="err">${esc(err.message)}<br>인터넷 연결을 확인해 주세요.</div>`;
   }
