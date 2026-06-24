@@ -63,7 +63,7 @@
   .tmdbScore{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--gold);font-weight:700;}
 
   /* 별점 */
-  .stars{display:flex;gap:0;margin-top:10px;touch-action:pan-y;}
+  .stars{display:flex;gap:0;margin-top:10px;}
   .star{font-size:30px;color:#3a3a4a;cursor:pointer;line-height:1;transition:.1s;padding:4px 7px;}
   .star.on{color:var(--gold);}
   .star:active{transform:scale(1.12);}
@@ -115,7 +115,7 @@
 
   .mPosterWrap{cursor:pointer;flex-shrink:0;}
   .mTitle{cursor:pointer;}
-  .stars{touch-action:none;} /* 드래그 중 스크롤 방지 */
+  .stars .star{ } /* 탭 전용 */
 
   /* 상세 모달 */
   #detailModal{position:fixed;inset:0;z-index:3000;display:none;}
@@ -133,7 +133,7 @@
   .dmOrig{font-size:12px;color:var(--dim);margin-top:3px;}
   .dmMeta{font-size:13px;color:var(--dim);margin-top:8px;}
   .dmGenre{font-size:12px;color:var(--gold);margin-top:7px;}
-  .dmStars{display:flex;align-items:center;gap:0;margin:16px 0 4px;touch-action:pan-y;flex-wrap:wrap;}
+  .dmStars{display:flex;align-items:center;gap:0;margin:16px 0 4px;flex-wrap:wrap;}
   .dmStars .star{font-size:30px;padding:4px 7px;}
   .dmRow{display:flex;gap:10px;margin-top:11px;font-size:13px;}
   .dmK{color:var(--dim);min-width:38px;font-weight:700;}
@@ -281,7 +281,7 @@ function movieRowHtml(m,opts={}){
       <div class="rowBottom">
         ${rated?`<span class="myScore">내 평점 ★${rated.rating}</span>`:''}
         <button class="wishBtn ${WISH[m.id]?'on':''}" data-wish="${m.id}">${WISH[m.id]?'★ 보고싶음':'☆ 보고싶다'}</button>
-        ${opts.del?`<button class="unrateBtn" data-unrate="${m.id}">평점 취소</button>`:''}
+        ${opts.del&&rated?`<button class="unrateBtn" data-unrate="${m.id}">평점 취소</button>`:''}
       </div>
     </div>
   </div>`;
@@ -290,73 +290,17 @@ function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 
 // ---- 별점: 탭 + 드래그 통합 (한 행만 정확히 조작) ----
 // 손가락 x좌표가 어느 별 위인지 — 별의 '오른쪽 끝'까지 포함해 그 별 번호 반환. 별 영역 밖 왼쪽이면 0
-function starFromPoint(starsEl,clientX){
-  const stars=[...starsEl.querySelectorAll('.star')];
-  let pick=0;
-  for(const s of stars){
-    const r=s.getBoundingClientRect();
-    if(clientX>=r.left) pick=+s.dataset.n;   // 이 별의 왼쪽을 지났으면 그 별까지 채움
-  }
-  // 맨 첫 별 왼쪽보다도 왼쪽을 누르면 1점으로 (별 영역 안이므로)
-  if(pick===0 && stars.length){
-    const first=stars[0].getBoundingClientRect();
-    if(clientX>=first.left-10) pick=1;
-  }
-  return pick;
+// 별점 = 탭만. 누른 그 별의 정확한 값으로 평가. 미리보기·드래그 완전 제거(잔상 원천 차단).
+function onStarTap(e){
+  const star=e.target.closest('.star');
+  if(!star) return;
+  const starsEl=star.closest('.stars, .dmStars');
+  if(!starsEl) return;
+  const id=+starsEl.dataset.mid;
+  const n=+star.dataset.n;
+  if(id && n) rate(id,n);
 }
-function previewStars(starsEl,n){
-  starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n));
-}
-function restoreStars(starsEl,id){
-  // 저장된 평점으로 되돌림 (미리보기 잔상 제거)
-  const r=RATED[id];
-  starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on', r && r.rating>=+s.dataset.n));
-}
-let activeStars=null, activeId=null, movedX=0, movedY=0, startX=0, startY=0, startedOnStar=false, lastPreview=0, cancelled=false;
-function onStarDown(e){
-  const star=e.target.closest('.star');           // 반드시 별 위에서 시작
-  const starsEl=e.target.closest('.stars, .dmStars');
-  if(!starsEl || !star) return;                   // 별이 아니면(여백·옆) 무시 → 스크롤 정상
-  activeStars=starsEl; activeId=+starsEl.dataset.mid;
-  startX=e.clientX; startY=e.clientY; movedX=0; movedY=0; startedOnStar=true; cancelled=false;
-  lastPreview=+star.dataset.n;                     // 처음 누른 별 번호 기억
-}
-function onStarMove(e){
-  if(!activeStars||cancelled) return;
-  movedX=Math.abs(e.clientX-startX);
-  movedY=Math.abs(e.clientY-startY);
-  // 세로로 더 많이 움직이면 = 스크롤 의도 → 별점 취소하고 원상복구
-  if(movedY>10 && movedY>movedX){
-    cancelled=true;
-    restoreStars(activeStars, activeId);
-    activeStars=null; activeId=null;
-    return;
-  }
-  if(movedX>6){
-    const n=starFromPoint(activeStars, e.clientX);
-    if(n){ lastPreview=n; previewStars(activeStars,n); }
-    e.preventDefault();
-  }
-}
-function onStarUp(e){
-  if(!activeStars||cancelled){ activeStars=null; activeId=null; return; }
-  const starsEl=activeStars, id=activeId;
-  let n=0;
-  if(movedX>6){
-    n=starFromPoint(starsEl, e.clientX) || lastPreview;
-  } else {
-    const st=(e.target&&e.target.closest)?e.target.closest('.star'):null;
-    if(st && st.parentElement===starsEl) n=+st.dataset.n;
-    else n=lastPreview;
-  }
-  activeStars=null; activeId=null; startedOnStar=false;
-  if(n && id){ rate(id,n); }
-  else if(id){ restoreStars(starsEl,id); }
-}
-document.addEventListener('pointerdown',onStarDown);
-document.addEventListener('pointermove',onStarMove);
-document.addEventListener('pointerup',onStarUp);
-document.addEventListener('pointercancel',()=>{ if(activeStars&&activeId) restoreStars(activeStars,activeId); activeStars=null;activeId=null;startedOnStar=false;});
+document.addEventListener('click',onStarTap);
 
 // ---- 영화 상세 열기 (포스터·제목·줄거리 클릭) ----
 document.addEventListener('click',e=>{
@@ -427,19 +371,26 @@ function syncAllStars(){
         if(rb) rb.insertBefore(badge, rb.firstChild); else info.appendChild(badge);
       }
       badge.textContent='내 평점 ★'+r.rating;
-    } else if(badge){ badge.remove(); }
+      // 평점취소 버튼이 없으면 추가 (rowBottom 안)
+      const rb=info.querySelector('.rowBottom');
+      if(rb && !rb.querySelector('[data-unrate="'+mid+'"]')){
+        const btn=document.createElement('button');
+        btn.className='unrateBtn'; btn.setAttribute('data-unrate',mid); btn.textContent='평점 취소';
+        rb.appendChild(btn);
+      }
+    } else {
+      if(badge) badge.remove();
+      info.querySelectorAll('[data-unrate="'+mid+'"]').forEach(b=>b.remove());
+    }
   });
 }
 function updateStarRows(id,n){ syncAllStars(); }
 function unrate(id){
   delete RATED[id]; save(); RECS_DIRTY=true;
-  // 화면의 별점 표시 초기화
-  document.querySelectorAll('.stars[data-mid="'+id+'"], .dmStars[data-mid="'+id+'"]').forEach(starsEl=>{
-    starsEl.querySelectorAll('.star').forEach(s=>s.classList.remove('on'));
-    const info=starsEl.closest('.mInfo')||starsEl.parentElement;
-    const badge=info.querySelector('.myScore'); if(badge) badge.remove();
-  });
-  refreshCurrentView();
+  syncAllStars();  // 별·배지 정리
+  // 평점취소 버튼도 제거 (검색탭 등 그 자리에서)
+  document.querySelectorAll('[data-unrate="'+id+'"]').forEach(b=>b.remove());
+  if(curView==='mine'||curView==='recs'||curView==='wish') refreshCurrentView();
 }
 
 // ---- 검색 ----
@@ -462,7 +413,7 @@ async function doSearch(q){
     const res=await searchMovies(q);
     LASTRESULTS={}; res.forEach(m=>LASTRESULTS[m.id]=m);
     if(!res.length){ $('#searchResults').innerHTML='<div class="empty">검색 결과가 없어요.<br>다른 제목으로 찾아보세요.</div>'; return; }
-    $('#searchResults').innerHTML=res.map(m=>movieRowHtml(m,{overview:true})).join('');
+    $('#searchResults').innerHTML=res.map(m=>movieRowHtml(m,{overview:true,del:true})).join('');
   }catch(err){
     $('#searchResults').innerHTML=`<div class="err">${esc(err.message)}<br>인터넷 연결을 확인해 주세요.</div>`;
   }
