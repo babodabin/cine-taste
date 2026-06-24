@@ -27,9 +27,10 @@
   .brand h1 .ac{color:var(--gold);}
   .brand .sub{font-size:11px;color:var(--dim);letter-spacing:2px;text-transform:uppercase;}
 
-  #tabs{display:flex;gap:7px;margin-top:13px;}
-  .tab{flex:1;text-align:center;font-size:13px;font-weight:700;color:var(--dim);padding:9px 0;
-    border-radius:10px;border:1px solid var(--line);background:#101019;cursor:pointer;transition:.15s;}
+  #tabs{display:flex;gap:6px;margin-top:13px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+  #tabs::-webkit-scrollbar{display:none;}
+  .tab{flex:0 0 auto;text-align:center;font-size:12.5px;font-weight:700;color:var(--dim);padding:9px 15px;
+    border-radius:10px;border:1px solid var(--line);background:#101019;cursor:pointer;transition:.15s;white-space:nowrap;}
   .tab.active{background:var(--gold);color:#1a1505;border-color:var(--gold);}
 
   main{flex:1;overflow-y:auto;padding:16px 18px 40px;-webkit-overflow-scrolling:touch;}
@@ -150,6 +151,7 @@
     <div class="tab" data-v="mine">내 평점</div>
     <div class="tab" data-v="recs">추천</div>
     <div class="tab" data-v="wish">보고싶다</div>
+    <div class="tab" data-v="discover">발견</div>
   </div>
 </header>
 
@@ -177,6 +179,11 @@
   <!-- 보고싶다 -->
   <div class="view" id="v-wish">
     <div id="wishList"></div>
+  </div>
+
+  <!-- 발견 -->
+  <div class="view" id="v-discover">
+    <div id="discoverBox"></div>
   </div>
 </main>
 
@@ -263,6 +270,17 @@ function posterTag(m){
     : `<div class="mPosterEmpty">🎬</div>`;
 }
 function yearOf(m){ return (m.release_date||"").slice(0,4); }
+// 개봉연도 점수: 최근일수록 가산, 오래될수록 감산. 기준 2010년=0
+// 2020년대 +0.8, 2010년대 0~+0.5, 2000년대 -0.3, 1990년대 -0.8, 1980 이전 -1.5~
+function yearBonus(m){
+  const y=parseInt(yearOf(m),10);
+  if(!y) return 0;
+  const diff=y-2010;            // 2010 기준
+  let b=diff*0.06;              // 매년 0.06점씩 차이
+  if(y<1980) b-=1.0;            // 80년 이전 강한 추가 감점
+  else if(y<1995) b-=0.4;       // 95년 이전 약한 추가 감점
+  return Math.max(-2.5, Math.min(1.0, b));  // -2.5 ~ +1.0 범위
+}
 
 function movieRowHtml(m,opts={}){
   const gids=m.genre_ids||m.genres||[];
@@ -443,6 +461,49 @@ function renderWish(){
   }).join('');
 }
 
+// ---- 발견 (TMDB 공식 큐레이션) ----
+let DISC_CAT='trending';   // 현재 카테고리
+let DISC_CACHE={};         // 카테고리별 결과 캐시
+const DISC_CATS=[
+  {key:'trending', name:'🔥 지금 뜨는'},
+  {key:'now',      name:'🎬 올해 인기작'},
+  {key:'top',      name:'⭐ 역대 명작'},
+  {key:'popular',  name:'👥 인기 영화'},
+];
+function discUrl(cat){
+  const y=new Date().getFullYear();
+  if(cat==='trending') return `${BASE}/trending/movie/week?api_key=${API_KEY}&language=ko-KR`;
+  if(cat==='now')      return `${BASE}/discover/movie?api_key=${API_KEY}&language=ko-KR&sort_by=popularity.desc&primary_release_year=${y}&vote_count.gte=50`;
+  if(cat==='top')      return `${BASE}/movie/top_rated?api_key=${API_KEY}&language=ko-KR`;
+  if(cat==='popular')  return `${BASE}/movie/popular?api_key=${API_KEY}&language=ko-KR`;
+  return `${BASE}/movie/popular?api_key=${API_KEY}&language=ko-KR`;
+}
+async function renderDiscover(){
+  let html=`<div class="tasteBox"><h3>🧭 발견 <span class="tasteHint">TMDB가 고른 영화들</span></h3>
+    <div class="chips">${DISC_CATS.map(c=>`<span class="chip ${DISC_CAT===c.key?'on':''}" data-disc="${c.key}">${c.name}</span>`).join('')}</div></div>`;
+  $('#discoverBox').innerHTML=html+'<div class="loading"><span class="spin"></span>불러오는 중…</div>';
+  let list=DISC_CACHE[DISC_CAT];
+  if(!list){
+    try{
+      const r=await fetch(discUrl(DISC_CAT));
+      const d=await r.json();
+      list=(d.results||[]).filter(m=>m.poster_path);
+      DISC_CACHE[DISC_CAT]=list;
+    }catch(e){
+      $('#discoverBox').innerHTML=html+'<div class="err">불러오지 못했어요. 인터넷을 확인해 주세요.</div>'; return;
+    }
+  }
+  list.forEach(m=>LASTRESULTS[m.id]=m);
+  const catName=(DISC_CATS.find(c=>c.key===DISC_CAT)||{}).name||'';
+  html+=`<div class="secTitle">${catName} <span class="countTag">${list.length}편</span></div>`;
+  html+=list.map(m=>movieRowHtml(m,{overview:true})).join('');
+  $('#discoverBox').innerHTML=html;
+}
+document.addEventListener('click',e=>{
+  const c=e.target.closest('.chip[data-disc]');
+  if(c){ DISC_CAT=c.dataset.disc; renderDiscover(); $('main').scrollTop=0; }
+});
+
 // ---- 추천 (내 평점 + 장르/키워드 가중치) ----
 let RECS_CACHE=null;     // 전체 후보(점수순) 캐시
 let RECS_FILTER=null;    // 선택된 장르 id (null=전체)
@@ -472,8 +533,9 @@ async function renderRecs(force){
         if(!cand[m.id]) cand[m.id]={m,score:0,from:[],seedScore:0};
         let gs=0; (m.genre_ids||[]).forEach(g=>{ gs+=(genreW[g]||0); });
         const rankBonus=Math.max(0,(20-idx))*0.04;
-        cand[m.id].score += seedWeight + gs*0.25 + (m.vote_average||0)*0.04 + rankBonus;
-        cand[m.id].seedScore += seedWeight + rankBonus;  // 장르필터용(가중치 제외) 점수
+        const yearScore=yearBonus(m);   // 최근일수록 ↑, 오래될수록 ↓
+        cand[m.id].score += seedWeight + gs*0.25 + (m.vote_average||0)*0.04 + rankBonus + yearScore;
+        cand[m.id].seedScore += seedWeight + rankBonus + yearScore;
         if(!cand[m.id].from.includes(s.title)) cand[m.id].from.push(s.title);
       });
     }
@@ -596,6 +658,7 @@ function refreshCurrentView(){
   if(curView==='mine') renderMine();
   else if(curView==='recs') renderRecs();
   else if(curView==='wish') renderWish();
+  else if(curView==='discover') renderDiscover();
   // 검색 탭: 별점 표시만 갱신 (현재 보이는 행의 별 on/off)
   if(curView==='search'){
     document.querySelectorAll('#searchResults .mRow').forEach(row=>{
