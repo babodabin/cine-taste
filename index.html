@@ -142,15 +142,21 @@
   .dmOverview{font-size:13.5px;color:#c8c6d5;line-height:1.7;margin-top:15px;
     border-top:1px solid var(--line);padding-top:15px;}
 
-  /* 인물(감독·배우) 헤더 */
-  .personHead{display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#13131c,#1a1505);
-    border:1px solid #3a2f10;border-radius:14px;padding:12px;margin:18px 0 13px;}
-  .personHead:first-child{margin-top:0;}
-  .personPic{width:54px;height:54px;border-radius:50%;object-fit:cover;background:#222;flex-shrink:0;}
-  .personPicEmpty{width:54px;height:54px;border-radius:50%;background:#1e1e2a;flex-shrink:0;
-    display:flex;align-items:center;justify-content:center;font-size:26px;}
-  .personName{font-size:17px;font-weight:900;color:var(--txt);}
-  .personDept{font-size:12px;color:var(--gold);margin-top:3px;font-weight:700;}
+  /* 인물(감독·배우) 칩 — 이름을 위에 모아 표시, 터치하면 그 사람만 */
+  .personChips{display:flex;gap:9px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none;padding:2px 0 4px;margin-bottom:14px;}
+  .personChips::-webkit-scrollbar{display:none;}
+  .personChip{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:5px;
+    width:78px;padding:10px 6px;border-radius:14px;background:var(--card);border:1px solid var(--line);
+    cursor:pointer;transition:.15s;}
+  .personChip.on{background:linear-gradient(135deg,#241d08,#1a1505);border-color:var(--gold);}
+  .personChip img{width:48px;height:48px;border-radius:50%;object-fit:cover;background:#222;}
+  .personChip .pcEmpty{width:48px;height:48px;border-radius:50%;background:#1e1e2a;
+    display:flex;align-items:center;justify-content:center;font-size:24px;}
+  .pcName{font-size:12px;font-weight:700;color:var(--txt);text-align:center;line-height:1.2;
+    max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .personChip.on .pcName{color:var(--gold);}
+  .pcDept{font-size:10px;color:var(--dim);font-weight:700;}
 </style>
 </head>
 <body>
@@ -464,16 +470,17 @@ function unrate(id){
 
 // ---- 검색 ----
 let qTimer=null;
+let SEARCH_STATE=null;   // {q, people:[{p,credits}], movies, activePerson}
 $('#q').addEventListener('input',e=>{
   const v=e.target.value.trim();
   $('#qClear').style.display=v?'block':'none';
   clearTimeout(qTimer);
-  if(!v){ $('#searchResults').innerHTML=''; $('#searchHint').style.display='block'; return; }
+  if(!v){ $('#searchResults').innerHTML=''; $('#searchHint').style.display='block'; SEARCH_STATE=null; return; }
   qTimer=setTimeout(()=>doSearch(v),400);
 });
 $('#qClear').addEventListener('click',()=>{
   $('#q').value=''; $('#qClear').style.display='none';
-  $('#searchResults').innerHTML=''; $('#searchHint').style.display='block'; $('#q').focus();
+  $('#searchResults').innerHTML=''; $('#searchHint').style.display='block'; SEARCH_STATE=null; $('#q').focus();
 });
 async function doSearch(q){
   $('#searchHint').style.display='none';
@@ -483,38 +490,69 @@ async function doSearch(q){
     const [res, people]=await Promise.all([ searchMovies(q), searchPeople(q) ]);
     LASTRESULTS={}; res.forEach(m=>LASTRESULTS[m.id]=m);
 
-    let html='';
-
-    // 1) 인물(감독·배우) 결과 — 각 인물별 헤더 + 작품
-    if(people.length){
-      for(const p of people){
-        const credits=await personCredits(p.id, p.known_for_department);
-        if(!credits.length) continue;
-        credits.forEach(m=>LASTRESULTS[m.id]=m);
-        const top=credits.slice(0,10);
-        html+=`<div class="personHead">
-          ${p.profile_path?`<img class="personPic" src="${IMG}${p.profile_path}" alt="">`:`<div class="personPicEmpty">👤</div>`}
-          <div class="personInfo">
-            <div class="personName">${esc(p.name)}</div>
-            <div class="personDept">${deptKo(p.known_for_department)} · 작품 ${credits.length}편</div>
-          </div>
-        </div>`;
-        html+=top.map(m=>movieRowHtml(m,{overview:true,del:true})).join('');
-      }
+    // 각 인물의 작품 미리 불러오기
+    const peopleData=[];
+    for(const p of people){
+      const credits=await personCredits(p.id, p.known_for_department);
+      if(credits.length){ credits.forEach(m=>LASTRESULTS[m.id]=m); peopleData.push({p,credits}); }
     }
 
-    // 2) 제목 검색 결과
-    if(res.length){
-      if(people.length && html) html+=`<div class="secTitle">제목 검색 결과 <span class="countTag">${res.length}편</span></div>`;
-      html+=res.map(m=>movieRowHtml(m,{overview:true,del:true})).join('');
-    }
-
-    if(!html){ $('#searchResults').innerHTML='<div class="empty">검색 결과가 없어요.<br>제목·감독·배우 이름으로 찾아보세요.</div>'; return; }
-    $('#searchResults').innerHTML=html;
+    SEARCH_STATE={ q, people:peopleData, movies:res, activePerson:null };
+    paintSearch();
   }catch(err){
     $('#searchResults').innerHTML=`<div class="err">${esc(err.message)}<br>인터넷 연결을 확인해 주세요.</div>`;
   }
 }
+
+function paintSearch(){
+  if(!SEARCH_STATE){ return; }
+  const {people,movies,activePerson}=SEARCH_STATE;
+  let html='';
+
+  // 1) 인물 칩 — 이름을 모두 위에. 터치하면 그 사람만 필터.
+  if(people.length){
+    html+=`<div class="personChips">`;
+    html+=people.map((pd,i)=>{
+      const on=activePerson===i;
+      return `<span class="personChip ${on?'on':''}" data-person="${i}">
+        ${pd.p.profile_path?`<img src="${IMG}${pd.p.profile_path}" alt="">`:`<span class="pcEmpty">👤</span>`}
+        <span class="pcName">${esc(pd.p.name)}</span>
+        <span class="pcDept">${deptKo(pd.p.known_for_department)}</span>
+      </span>`;
+    }).join('');
+    html+=`</div>`;
+  }
+
+  if(activePerson!==null){
+    // 특정 인물 선택됨 → 그 사람 작품만 전체
+    const pd=people[activePerson];
+    html+=`<div class="secTitle">${esc(pd.p.name)} ${deptKo(pd.p.known_for_department)} 작품 <span class="countTag">${pd.credits.length}편</span></div>`;
+    html+=pd.credits.map(m=>movieRowHtml(m,{overview:true,del:true})).join('');
+  } else {
+    // 기본 화면: 각 인물의 유명 작품(상위 6편)만 + 제목 검색 결과
+    people.forEach(pd=>{
+      html+=`<div class="secTitle">${esc(pd.p.name)} ${deptKo(pd.p.known_for_department)} <span class="countTag">대표작</span></div>`;
+      html+=pd.credits.slice(0,6).map(m=>movieRowHtml(m,{overview:true,del:true})).join('');
+    });
+    if(movies.length){
+      if(people.length) html+=`<div class="secTitle">제목 검색 결과 <span class="countTag">${movies.length}편</span></div>`;
+      html+=movies.map(m=>movieRowHtml(m,{overview:true,del:true})).join('');
+    }
+  }
+
+  if(!html){ $('#searchResults').innerHTML='<div class="empty">검색 결과가 없어요.<br>제목·감독·배우 이름으로 찾아보세요.</div>'; return; }
+  $('#searchResults').innerHTML=html;
+}
+
+// 인물 칩 터치 → 그 사람만 보기 / 다시 누르면 해제
+document.addEventListener('click',e=>{
+  const chip=e.target.closest('.personChip[data-person]');
+  if(!chip || !SEARCH_STATE) return;
+  const i=+chip.dataset.person;
+  SEARCH_STATE.activePerson = (SEARCH_STATE.activePerson===i) ? null : i;
+  paintSearch();
+  $('main').scrollTop=0;
+});
 
 // ---- 내 평점 ----
 function renderMine(){
