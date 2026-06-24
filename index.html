@@ -74,7 +74,12 @@
   .mActions{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap;}
 
   .myScore{font-size:12px;font-weight:700;color:var(--gold);background:#241d08;
-    padding:3px 9px;border-radius:20px;display:inline-block;margin-top:7px;}
+    padding:3px 9px;border-radius:20px;display:inline-block;}
+  .rowBottom{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  .wishBtn{font-family:inherit;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:20px;
+    background:#1c1c28;color:var(--dim);border:1px solid var(--line);cursor:pointer;}
+  .wishBtn.on{background:#241d08;color:var(--gold);border-color:#4a3c12;}
+  .dmWish{margin:6px 0 4px;font-size:13px;padding:9px 16px;}
 
   .secTitle{font-size:13px;font-weight:900;color:var(--dim);letter-spacing:1px;text-transform:uppercase;
     margin:24px 0 13px;display:flex;align-items:center;gap:9px;}
@@ -142,6 +147,7 @@
     <div class="tab active" data-v="search">검색·평가</div>
     <div class="tab" data-v="mine">내 평점</div>
     <div class="tab" data-v="recs">추천</div>
+    <div class="tab" data-v="wish">보고싶다</div>
   </div>
 </header>
 
@@ -165,6 +171,11 @@
   <div class="view" id="v-recs">
     <div id="recsBox"></div>
   </div>
+
+  <!-- 보고싶다 -->
+  <div class="view" id="v-wish">
+    <div id="wishList"></div>
+  </div>
 </main>
 
 <div id="detailModal">
@@ -182,9 +193,15 @@ const $=s=>document.querySelector(s);
 
 // ---- 저장 (이 기기에만) ----
 const STORE="cinetaste_ratings_v1";
+const WSTORE="cinetaste_wish_v1";
 let RATED={}; // id -> {id,title,year,poster,genres:[ids],rating,overview,vote}
-function load(){ try{RATED=JSON.parse(localStorage.getItem(STORE))||{};}catch(e){RATED={};} }
+let WISH={};  // id -> movie (보고싶은 영화)
+function load(){
+  try{RATED=JSON.parse(localStorage.getItem(STORE))||{};}catch(e){RATED={};}
+  try{WISH=JSON.parse(localStorage.getItem(WSTORE))||{};}catch(e){WISH={};}
+}
 function save(){ try{localStorage.setItem(STORE,JSON.stringify(RATED));}catch(e){} }
+function saveWish(){ try{localStorage.setItem(WSTORE,JSON.stringify(WISH));}catch(e){} }
 load();
 
 // ---- 장르 맵 ----
@@ -259,54 +276,103 @@ function movieRowHtml(m,opts={}){
       ${opts.overview&&m.overview?`<div class="mOverview" data-detail="${m.id}">${esc(m.overview)}</div>`:''}
       ${opts.why?`<div class="recWhy">${esc(opts.why)}</div>`:''}
       <div class="stars" data-mid="${m.id}">${stars}</div>
-      ${rated?`<span class="myScore">내 평점 ★${rated.rating}</span>`:''}
+      <div class="rowBottom">
+        ${rated?`<span class="myScore">내 평점 ★${rated.rating}</span>`:''}
+        <button class="wishBtn ${WISH[m.id]?'on':''}" data-wish="${m.id}">${WISH[m.id]?'★ 보고싶음':'☆ 보고싶다'}</button>
+      </div>
     </div>
   </div>`;
 }
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 // ---- 별점: 탭 + 드래그 통합 (한 행만 정확히 조작) ----
+// 손가락 x좌표가 어느 별 위인지 — 별의 '오른쪽 끝'까지 포함해 그 별 번호 반환. 별 영역 밖 왼쪽이면 0
 function starFromPoint(starsEl,clientX){
   const stars=[...starsEl.querySelectorAll('.star')];
   let pick=0;
-  stars.forEach(s=>{ const r=s.getBoundingClientRect(); if(clientX>=r.left-4) pick=+s.dataset.n; });
+  for(const s of stars){
+    const r=s.getBoundingClientRect();
+    if(clientX>=r.left) pick=+s.dataset.n;   // 이 별의 왼쪽을 지났으면 그 별까지 채움
+  }
+  // 맨 첫 별 왼쪽보다도 왼쪽을 누르면 1점으로 (별 영역 안이므로)
+  if(pick===0 && stars.length){
+    const first=stars[0].getBoundingClientRect();
+    if(clientX>=first.left-10) pick=1;
+  }
   return pick;
 }
 function previewStars(starsEl,n){
   starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n));
 }
-// 포인터 이벤트로 통일 (터치·마우스 모두 pointer로 들어옴)
-let activeStars=null, activeId=null;
+function restoreStars(starsEl,id){
+  // 저장된 평점으로 되돌림 (미리보기 잔상 제거)
+  const r=RATED[id];
+  starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on', r && r.rating>=+s.dataset.n));
+}
+let activeStars=null, activeId=null, movedX=0, startX=0;
 function onStarDown(e){
   const starsEl=e.target.closest('.stars, .dmStars');
   if(!starsEl) return;
-  activeStars=starsEl; activeId=+starsEl.dataset.mid;
-  const n=starFromPoint(starsEl, e.clientX);
-  if(n) previewStars(starsEl,n);
+  activeStars=starsEl; activeId=+starsEl.dataset.mid; startX=e.clientX; movedX=0;
+  // 다운 시점엔 미리보기 안 함 (탭만 누르고 떼는 경우 5점 잔상 방지)
   e.preventDefault();
 }
 function onStarMove(e){
   if(!activeStars) return;
-  const n=starFromPoint(activeStars, e.clientX);
-  if(n) previewStars(activeStars,n);
+  movedX=Math.abs(e.clientX-startX);
+  if(movedX>6){  // 실제로 밀 때만 미리보기
+    const n=starFromPoint(activeStars, e.clientX);
+    if(n) previewStars(activeStars,n);
+  }
 }
 function onStarUp(e){
   if(!activeStars) return;
-  const n=starFromPoint(activeStars, e.clientX);
-  const id=activeId;            // 이 행의 영화 id만 사용 (다른 영화 영향 없음)
+  const starsEl=activeStars, id=activeId;
+  let n;
+  if(movedX>6){
+    n=starFromPoint(starsEl, e.clientX);           // 드래그: 손가락 위치
+  } else {
+    // 탭: 정확히 눌린 별의 번호
+    const st=(e.target&&e.target.closest)?e.target.closest('.star'):null;
+    n = st ? +st.dataset.n : starFromPoint(starsEl, e.clientX);
+  }
   activeStars=null; activeId=null;
-  if(n && id) rate(id,n);
+  if(n && id){ rate(id,n); }
+  else if(id){ restoreStars(starsEl,id); }       // 평점 안 정해지면 잔상 복원
 }
 document.addEventListener('pointerdown',onStarDown);
 document.addEventListener('pointermove',onStarMove);
 document.addEventListener('pointerup',onStarUp);
-document.addEventListener('pointercancel',()=>{activeStars=null;activeId=null;});
+document.addEventListener('pointercancel',()=>{ if(activeStars&&activeId) restoreStars(activeStars,activeId); activeStars=null;activeId=null;});
 
 // ---- 영화 상세 열기 (포스터·제목·줄거리 클릭) ----
 document.addEventListener('click',e=>{
   if(e.target.closest('.stars, .dmStars')) return;
+  if(e.target.closest('[data-wish]')) return;   // 찜 버튼은 상세 안 열기
   const d=e.target.closest('[data-detail]');
   if(d){ openDetail(+d.dataset.detail); }
+});
+// ---- 찜(보고싶다) 토글 ----
+function toggleWish(id){
+  const src=LASTRESULTS[id]||RATED[id]||WISH[id];
+  if(!src) return;
+  if(WISH[id]){ delete WISH[id]; }
+  else {
+    WISH[id]={ id, title:src.title, year:yearOf(src)||src.year||'',
+      poster:src.poster_path||src.poster||null, genres:(src.genre_ids||src.genres||[]),
+      overview:src.overview||'', vote:src.vote_average||src.vote||0 };
+  }
+  saveWish();
+  // 화면의 해당 찜 버튼들 갱신 (목록 재배치 없이)
+  document.querySelectorAll('[data-wish="'+id+'"]').forEach(b=>{
+    const on=!!WISH[id]; b.classList.toggle('on',on);
+    b.textContent=on?'★ 보고싶음':'☆ 보고싶다';
+  });
+  if(curView==='wish') renderWish();
+}
+document.addEventListener('click',e=>{
+  const w=e.target.closest('[data-wish]');
+  if(w){ toggleWish(+w.dataset.wish); }
 });
 let LASTRESULTS={}; // id -> movie (검색결과 캐시, 평점 저장용)
 function rate(id,n){
@@ -319,8 +385,14 @@ function rate(id,n){
     rating:n, overview:m.overview||'', vote:m.vote_average||m.vote||0
   };
   save();
-  RECS_CACHE=null;   // 평점이 바뀌면 추천 다시 계산하도록
-  refreshCurrentView();
+  RECS_DIRTY=true;   // 추천을 다음에 새로 계산해야 함 (지금 화면은 유지)
+  // 현재 탭에 따라 갱신 방식 분기
+  if(curView==='recs'){
+    // 추천 화면은 흐트러지지 않게 — 그 영화 행의 별점/배지만 갱신
+    updateStarRows(id,n);
+  } else {
+    refreshCurrentView();
+  }
   const dmStars=document.querySelector('.dmStars[data-mid="'+id+'"]');
   if(dmStars){
     dmStars.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n));
@@ -328,6 +400,16 @@ function rate(id,n){
     if(!badge){ badge=document.createElement('span'); badge.className='myScore'; dmStars.appendChild(badge); }
     badge.textContent='내 평점 ★'+n;
   }
+}
+// 화면에 보이는 같은 영화의 별점 행들을 갱신 (목록 재배치 없이)
+function updateStarRows(id,n){
+  document.querySelectorAll('.stars[data-mid="'+id+'"], .dmStars[data-mid="'+id+'"]').forEach(starsEl=>{
+    starsEl.querySelectorAll('.star').forEach(s=>s.classList.toggle('on',+s.dataset.n<=n));
+    const info=starsEl.closest('.mInfo')||starsEl.parentElement;
+    let badge=info.querySelector('.myScore');
+    if(!badge){ badge=document.createElement('span'); badge.className='myScore'; info.appendChild(badge); }
+    badge.textContent='내 평점 ★'+n;
+  });
 }
 function unrate(id){ delete RATED[id]; save(); refreshCurrentView(); }
 
@@ -361,13 +443,23 @@ async function doSearch(q){
 function renderMine(){
   const arr=Object.values(RATED).sort((a,b)=>b.rating-a.rating||a.title.localeCompare(b.title));
   if(!arr.length){ $('#mineList').innerHTML='<div class="empty">아직 평가한 영화가 없어요.<br>검색 탭에서 별점을 매겨보세요.</div>'; return; }
-  // 평점 저장용 캐시에도 넣기
   arr.forEach(m=>LASTRESULTS[m.id]={id:m.id,title:m.title,release_date:m.year+'-01-01',poster_path:m.poster,genre_ids:m.genres,overview:m.overview,vote_average:m.vote});
   const head=`<div class="secTitle">내가 평가한 영화 <span class="countTag">${arr.length}편</span></div>`;
   $('#mineList').innerHTML=head+arr.map(m=>{
     const mm={id:m.id,title:m.title,release_date:(m.year||'')+'-01-01',poster_path:m.poster,genre_ids:m.genres,vote_average:m.vote,overview:m.overview};
-    return movieRowHtml(mm,{}).replace('</div>\n  </div>',
-      `</div><div class="mActions"><button class="btn btnDel" onclick="unrate(${m.id})">삭제</button></div></div>`);
+    return movieRowHtml(mm,{});
+  }).join('');
+}
+
+// ---- 보고싶다 ----
+function renderWish(){
+  const arr=Object.values(WISH);
+  if(!arr.length){ $('#wishList').innerHTML='<div class="empty">아직 보고싶은 영화가 없어요.<br>영화의 ☆ 보고싶다 버튼을 눌러보세요.</div>'; return; }
+  arr.forEach(m=>LASTRESULTS[m.id]={id:m.id,title:m.title,release_date:(m.year||'')+'-01-01',poster_path:m.poster,genre_ids:m.genres,overview:m.overview,vote_average:m.vote});
+  const head=`<div class="secTitle">보고싶은 영화 <span class="countTag">${arr.length}편</span></div>`;
+  $('#wishList').innerHTML=head+arr.map(m=>{
+    const mm={id:m.id,title:m.title,release_date:(m.year||'')+'-01-01',poster_path:m.poster,genre_ids:m.genres,vote_average:m.vote,overview:m.overview};
+    return movieRowHtml(mm,{overview:true});
   }).join('');
 }
 
@@ -375,6 +467,7 @@ function renderMine(){
 let RECS_CACHE=null;     // 전체 후보(점수순) 캐시
 let RECS_FILTER=null;    // 선택된 장르 id (null=전체)
 let RECS_PAGE=0;         // 30편 단위 페이지
+let RECS_DIRTY=false;    // 평점이 바뀌어 재계산 필요 표시
 
 async function renderRecs(force){
   const rated=Object.values(RATED);
@@ -382,8 +475,9 @@ async function renderRecs(force){
     $('#recsBox').innerHTML='<div class="empty">평가한 영화가 있어야 추천할 수 있어요.<br>먼저 본 영화에 별점을 매겨주세요.</div>';
     RECS_CACHE=null; return;
   }
-  // 캐시가 없거나 강제 재계산일 때만 API 호출
-  if(!RECS_CACHE || force){
+  // 캐시가 없거나 / 강제 / 평점 변경(dirty)일 때만 다시 계산
+  if(!RECS_CACHE || force || RECS_DIRTY){
+    RECS_DIRTY=false;
     $('#recsBox').innerHTML='<div class="loading"><span class="spin"></span>취향 분석 중…</div>';
     const genreW={};
     rated.forEach(m=>{ const w=m.rating-2.5; (m.genres||[]).forEach(g=>{ genreW[g]=(genreW[g]||0)+w; }); });
@@ -395,10 +489,11 @@ async function renderRecs(force){
       const sims=await similarOf(s.id);
       sims.forEach((m,idx)=>{
         if(seen.has(m.id)) return;
-        if(!cand[m.id]) cand[m.id]={m,score:0,from:[]};
+        if(!cand[m.id]) cand[m.id]={m,score:0,from:[],seedScore:0};
         let gs=0; (m.genre_ids||[]).forEach(g=>{ gs+=(genreW[g]||0); });
         const rankBonus=Math.max(0,(20-idx))*0.04;
         cand[m.id].score += seedWeight + gs*0.25 + (m.vote_average||0)*0.04 + rankBonus;
+        cand[m.id].seedScore += seedWeight + rankBonus;  // 장르필터용(가중치 제외) 점수
         if(!cand[m.id].from.includes(s.title)) cand[m.id].from.push(s.title);
       });
     }
@@ -420,8 +515,14 @@ function paintRecs(){
       ${topG.map(g=>`<span class="chip ${RECS_FILTER===g?'on':''}" data-g="${g}">${gname(g)}</span>`).join('')}
     </div></div>`;
 
-  // 필터 적용
-  let filtered=RECS_FILTER===null ? list : list.filter(c=>(c.m.genre_ids||[]).includes(RECS_FILTER));
+  // 필터 적용 — 장르를 고르면 그 장르 안에서는 가중치 빼고 '내 취향 출처 + TMDB 평점'으로 정렬
+  let filtered;
+  if(RECS_FILTER===null){
+    filtered=list;   // 전체: 장르 가중치 포함 점수순(이미 정렬됨)
+  } else {
+    filtered=list.filter(c=>(c.m.genre_ids||[]).includes(RECS_FILTER))
+      .slice().sort((a,b)=>(b.seedScore+(b.m.vote_average||0)*0.1)-(a.seedScore+(a.m.vote_average||0)*0.1));
+  }
   const total=filtered.length;
   const pageItems=filtered.slice(RECS_PAGE*30,(RECS_PAGE+1)*30);
 
@@ -487,6 +588,7 @@ async function openDetail(id){
         </div>
       </div>
       <div class="dmStars" data-mid="${id}">${stars}${rated?`<span class="myScore">내 평점 ★${rated.rating}</span>`:''}</div>
+      <button class="wishBtn dmWish ${WISH[id]?'on':''}" data-wish="${id}">${WISH[id]?'★ 보고싶음':'☆ 보고싶다'}</button>
       ${dir?`<div class="dmRow"><span class="dmK">감독</span><span class="dmV">${esc(dir)}</span></div>`:''}
       ${cast?`<div class="dmRow"><span class="dmK">출연</span><span class="dmV">${esc(cast)}</span></div>`:''}
       ${d.overview?`<div class="dmOverview">${esc(d.overview)}</div>`:'<div class="dmOverview" style="color:#666">줄거리 정보가 없어요.</div>'}
@@ -513,6 +615,7 @@ document.querySelectorAll('.tab').forEach(t=>{
 function refreshCurrentView(){
   if(curView==='mine') renderMine();
   else if(curView==='recs') renderRecs();
+  else if(curView==='wish') renderWish();
   // 검색 탭: 별점 표시만 갱신 (현재 보이는 행의 별 on/off)
   if(curView==='search'){
     document.querySelectorAll('#searchResults .mRow').forEach(row=>{
