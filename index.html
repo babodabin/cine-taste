@@ -139,6 +139,9 @@
   .dmRow{display:flex;gap:10px;margin-top:11px;font-size:13px;}
   .dmK{color:var(--dim);min-width:38px;font-weight:700;}
   .dmV{color:var(--txt);flex:1;line-height:1.5;}
+  .nameLink{color:var(--teal);cursor:pointer;font-weight:700;}
+  .nameLink:active{opacity:.6;}
+  .nameSep{color:var(--dim);}
   .dmOverview{font-size:13.5px;color:#c8c6d5;line-height:1.7;margin-top:15px;
     border-top:1px solid var(--line);padding-top:15px;}
 
@@ -785,14 +788,15 @@ async function openDetail(id){
   try{
     const r=await fetch(`${BASE}/movie/${id}?api_key=${API_KEY}&language=ko-KR&append_to_response=credits`);
     const d=await r.json();
-    const dir=(d.credits&&d.credits.crew||[]).filter(c=>c.job==='Director').map(c=>c.name).join(', ');
-    const cast=(d.credits&&d.credits.cast||[]).slice(0,5).map(c=>c.name).join(', ');
+    const dirArr=(d.credits&&d.credits.crew||[]).filter(c=>c.job==='Director').map(c=>c.name);
+    const castArr=(d.credits&&d.credits.cast||[]).slice(0,5).map(c=>c.name);
     const genres=(d.genres||[]).map(g=>g.name).join(' · ');
     const runtime=d.runtime?d.runtime+'분':'';
     const year=(d.release_date||'').slice(0,4);
     const rated=RATED[id];
     LASTRESULTS[id]={id,title:d.title,release_date:d.release_date,poster_path:d.poster_path,genre_ids:(d.genres||[]).map(g=>g.id),overview:d.overview,vote_average:d.vote_average};
     const stars=[1,2,3,4,5].map(n=>`<span class="star ${rated&&rated.rating>=n?'on':''}" data-id="${id}" data-n="${n}">★</span>`).join('');
+    const nameChips=arr=>arr.map(n=>`<span class="nameLink" data-name="${esc(n)}">${esc(n)}</span>`).join('<span class="nameSep">, </span>');
     body.innerHTML=`
       <div class="dmHead">
         ${d.poster_path?`<img class="dmPoster" src="https://image.tmdb.org/t/p/w342${d.poster_path}">`:''}
@@ -805,8 +809,8 @@ async function openDetail(id){
       </div>
       <div class="dmStars" data-mid="${id}">${stars}${rated?`<span class="myScore">내 평점 ★${rated.rating}</span>`:''}</div>
       <button class="wishBtn dmWish ${WISH[id]?'on':''}" data-wish="${id}">${WISH[id]?'★ 보고싶음':'☆ 보고싶다'}</button>
-      ${dir?`<div class="dmRow"><span class="dmK">감독</span><span class="dmV">${esc(dir)}</span></div>`:''}
-      ${cast?`<div class="dmRow"><span class="dmK">출연</span><span class="dmV">${esc(cast)}</span></div>`:''}
+      ${dirArr.length?`<div class="dmRow"><span class="dmK">감독</span><span class="dmV">${nameChips(dirArr)}</span></div>`:''}
+      ${castArr.length?`<div class="dmRow"><span class="dmK">출연</span><span class="dmV">${nameChips(castArr)}</span></div>`:''}
       ${d.overview?`<div class="dmOverview">${esc(d.overview)}</div>`:'<div class="dmOverview" style="color:#666">줄거리 정보가 없어요.</div>'}
     `;
   }catch(e){
@@ -815,6 +819,26 @@ async function openDetail(id){
 }
 $('#dmClose').addEventListener('click',()=>$('#detailModal').classList.remove('show'));
 $('#detailModal').querySelector('.dmBackdrop').addEventListener('click',()=>$('#detailModal').classList.remove('show'));
+
+// 감독·배우 이름 클릭 → 검색·평가 탭으로 가서 그 사람 검색
+document.addEventListener('click',e=>{
+  const nl=e.target.closest('.nameLink[data-name]');
+  if(!nl) return;
+  const name=nl.dataset.name;
+  $('#detailModal').classList.remove('show');   // 모달 닫기
+  // 검색 탭으로 전환
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  const searchTab=document.querySelector('.tab[data-v="search"]');
+  if(searchTab) searchTab.classList.add('active');
+  curView='search';
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('show'));
+  $('#v-search').classList.add('show');
+  // 검색창에 이름 넣고 검색
+  $('#q').value=name;
+  $('#qClear').style.display='block';
+  $('main').scrollTop=0;
+  doSearch(name);
+});
 
 // ---- 탭 ----
 let curView='search';
@@ -826,6 +850,7 @@ document.querySelectorAll('.tab').forEach(t=>{
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('show'));
     $('#v-'+curView).classList.add('show');
     refreshCurrentView();
+    $('main').scrollTop=0;   // 탭 누르면 맨 위로
   });
 });
 function refreshCurrentView(){
@@ -840,7 +865,7 @@ function refreshCurrentView(){
       if(!stars.length) return;
       const id=+stars[0].dataset.id;
       const r=RATED[id];
-      stars.forEach(s=>s.classList.toggle('on', r && r.rating>=+s.dataset.n));
+      stars.forEach(s=>s.classList.toggle('on', !!r && r.rating>=+s.dataset.n));
       let badge=row.querySelector('.myScore');
       if(r){
         if(!badge){ badge=document.createElement('span'); badge.className='myScore'; row.querySelector('.mInfo').appendChild(badge); }
